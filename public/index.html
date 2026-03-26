@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Code Digest Studio</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="glow glow-one"></div>
+    <div class="glow glow-two"></div>
+
+    <main class="shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Code digest studio</p>
+          <h1>Teach the tool your taste. Then build with it.</h1>
+          <p class="lede">
+            Save admired snippets, extract the developer signals inside them, and use
+            that living memory to shape future products.
+          </p>
+        </div>
+
+        <section class="metric-strip">
+          <article class="metric-card">
+            <span class="metric-label">Digests</span>
+            <strong id="metricTotal">0</strong>
+          </article>
+          <article class="metric-card">
+            <span class="metric-label">Top language</span>
+            <strong id="metricLanguage">None yet</strong>
+          </article>
+          <article class="metric-card">
+            <span class="metric-label">Top tag</span>
+            <strong id="metricTag">None yet</strong>
+          </article>
+          <article class="metric-card">
+            <span class="metric-label">Primary directive</span>
+            <strong id="metricDirective">Collect signals</strong>
+          </article>
+        </section>
+      </header>
+
+      <nav class="tabs" aria-label="App views">
+        <button class="tab is-active" data-view-target="digest" type="button">Digest</button>
+        <button class="tab" data-view-target="library" type="button">Library</button>
+        <button class="tab" data-view-target="studio" type="button">Studio</button>
+      </nav>
+
+      <section class="view is-active" data-view="digest">
+        <div class="layout-two">
+          <article class="panel composer-panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Paste code</p>
+                <h2>Teach the system from the snippet alone</h2>
+              </div>
+              <button id="digestButton" class="action-button" type="button">Digest</button>
+            </div>
+
+            <label class="field">
+              <span class="field-label">Paste code</span>
+              <textarea
+                id="codeInput"
+                class="code-input"
+                spellcheck="false"
+                placeholder="Paste any code snippet here. The app will identify the language, classify it, learn from it, and store a reusable developer-memory artifact."
+              ></textarea>
+            </label>
+
+            <div class="composer-footer">
+              <p id="statusText" class="status idle">Ready.</p>
+            </div>
+          </article>
+
+          <article class="panel knowledge-panel">
+            <div class="panel-head compact">
+              <div>
+                <p class="panel-kicker">Knowledge dock</p>
+                <h2>Learned profile and memory</h2>
+              </div>
+            </div>
+
+            <div class="segment-tabs">
+              <button
+                class="segment-tab is-active"
+                data-segment-group="knowledge"
+                data-segment-target="profile"
+                type="button"
+              >
+                Profile
+              </button>
+              <button
+                class="segment-tab"
+                data-segment-group="knowledge"
+                data-segment-target="prompt"
+                type="button"
+              >
+                Prompt kit
+              </button>
+              <button
+                class="segment-tab"
+                data-segment-group="knowledge"
+                data-segment-target="memory"
+                type="button"
+              >
+                Memory
+              </button>
+            </div>
+
+            <div
+              class="segment-panel is-active"
+              data-segment-group="knowledge"
+              data-segment-panel="profile"
+            >
+              <p id="profileSummary" class="summary-copy">Loading profile…</p>
+
+              <div class="mini-section">
+                <p class="mini-heading">Top languages</p>
+                <div id="topLanguages" class="chip-row"></div>
+              </div>
+
+              <div class="mini-section">
+                <p class="mini-heading">Top tags</p>
+                <div id="topTags" class="chip-row"></div>
+              </div>
+
+              <div class="mini-section">
+                <p class="mini-heading">Build directives</p>
+                <ul id="topDirectives" class="bullet-list compact-list"></ul>
+              </div>
+
+              <div class="mini-section">
+                <div class="recent-head">
+                  <p class="mini-heading">Recent digests</p>
+                </div>
+                <ul id="recentDigests" class="recent-list"></ul>
+              </div>
+            </div>
+
+            <div
+              class="segment-panel"
+              data-segment-group="knowledge"
+              data-segment-panel="prompt"
+            >
+              <div class="inline-action-row">
+                <p class="mini-heading">Operational prompt kit</p>
+                <button id="copyPromptKitButton" class="secondary-button" type="button">
+                  Copy
+                </button>
+              </div>
+              <pre id="promptKitPreview" class="markdown-preview">Loading prompt kit…</pre>
+            </div>
+
+            <div
+              class="segment-panel"
+              data-segment-group="knowledge"
+              data-segment-panel="memory"
+            >
+              <p class="mini-heading">Living style memory</p>
+              <pre id="memoryPreview" class="markdown-preview">Loading memory…</pre>
+            </div>
+          </article>
+        </div>
+
+        <section id="resultsSection" class="results hidden" aria-live="polite">
+          <article class="panel result-hero">
+            <p class="panel-kicker">Latest digest</p>
+            <h2 id="languageLabel">Language</h2>
+            <p id="summaryText" class="result-summary"></p>
+            <div id="tagList" class="chip-row"></div>
+          </article>
+
+          <article class="panel result-detail-panel">
+            <div class="segment-tabs">
+              <button
+                class="segment-tab is-active"
+                data-segment-group="results"
+                data-segment-target="signals"
+                type="button"
+              >
+                Signals
+              </button>
+              <button
+                class="segment-tab"
+                data-segment-group="results"
+                data-segment-target="guidance"
+                type="button"
+              >
+                Guidance
+              </button>
+              <button
+                class="segment-tab"
+                data-segment-group="results"
+                data-segment-target="artifacts"
+                type="button"
+              >
+                Artifacts
+              </button>
+            </div>
+
+            <div
+              class="segment-panel is-active"
+              data-segment-group="results"
+              data-segment-panel="signals"
+            >
+              <div class="insight-grid two-up">
+                <div>
+                  <p class="mini-heading">Style signals</p>
+                  <ul id="styleList" class="bullet-list"></ul>
+                </div>
+                <div>
+                  <p class="mini-heading">Taste read</p>
+                  <ul id="preferencesList" class="bullet-list"></ul>
+                </div>
+              </div>
+            </div>
+
+            <div
+              class="segment-panel"
+              data-segment-group="results"
+              data-segment-panel="guidance"
+            >
+              <div class="insight-grid three-up">
+                <div>
+                  <p class="mini-heading">Build directives</p>
+                  <ul id="directivesList" class="bullet-list compact-list"></ul>
+                </div>
+                <div>
+                  <p class="mini-heading">Reusable patterns</p>
+                  <ul id="patternsList" class="bullet-list compact-list"></ul>
+                </div>
+                <div>
+                  <p class="mini-heading">Avoid</p>
+                  <ul id="avoidList" class="bullet-list compact-list"></ul>
+                </div>
+              </div>
+            </div>
+
+            <div
+              class="segment-panel"
+              data-segment-group="results"
+              data-segment-panel="artifacts"
+            >
+              <div id="filePaths" class="chip-row"></div>
+
+              <div class="artifact-grid">
+                <div>
+                  <p class="mini-heading">Updated taste memory</p>
+                  <pre id="memoryOutput" class="markdown-preview"></pre>
+                </div>
+                <div>
+                  <p class="mini-heading">Latest digest markdown</p>
+                  <pre id="digestOutput" class="markdown-preview"></pre>
+                </div>
+              </div>
+            </div>
+          </article>
+        </section>
+      </section>
+
+      <section class="view" data-view="library">
+        <div class="layout-two library-layout">
+          <article class="panel library-panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Snippet archive</p>
+                <h2>Search the learned library</h2>
+              </div>
+            </div>
+
+            <label class="field">
+              <span class="field-label">Search</span>
+              <input
+                id="librarySearchInput"
+                type="search"
+                placeholder="Search by title, tag, language, source, note, or preference signal."
+              />
+            </label>
+
+            <ul id="libraryList" class="library-list"></ul>
+          </article>
+
+          <article class="panel detail-panel">
+            <div id="libraryEmptyState" class="empty-state">
+              Select a snippet to inspect its code, digest, and learned signals.
+            </div>
+
+            <div id="libraryDetail" class="hidden">
+              <p class="panel-kicker">Snippet detail</p>
+              <h2 id="detailTitle">Snippet</h2>
+              <p id="detailMeta" class="detail-meta"></p>
+              <p id="detailReason" class="detail-copy"></p>
+              <p id="detailNotes" class="detail-copy"></p>
+              <div id="detailTags" class="chip-row"></div>
+              <p id="detailSummary" class="result-summary"></p>
+
+              <div class="detail-lists">
+                <div>
+                  <p class="mini-heading">Directives</p>
+                  <ul id="detailDirectives" class="bullet-list compact-list"></ul>
+                </div>
+                <div>
+                  <p class="mini-heading">Patterns</p>
+                  <ul id="detailPatterns" class="bullet-list compact-list"></ul>
+                </div>
+                <div>
+                  <p class="mini-heading">Avoid</p>
+                  <ul id="detailAvoid" class="bullet-list compact-list"></ul>
+                </div>
+              </div>
+
+              <div class="detail-columns">
+                <div>
+                  <p class="mini-heading">Code</p>
+                  <pre id="detailCode" class="code-preview"></pre>
+                </div>
+                <div>
+                  <p class="mini-heading">Digest markdown</p>
+                  <pre id="detailDigest" class="markdown-preview detail-markdown"></pre>
+                </div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" data-view="studio">
+        <div class="layout-two studio-layout">
+          <article class="panel composer-panel">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Taste-aligned generator</p>
+                <h2>Shape a future product from what the tool has learned</h2>
+              </div>
+              <button id="generateButton" class="action-button" type="button">
+                Shape Product
+              </button>
+            </div>
+
+            <label class="field">
+              <span class="field-label">Product idea</span>
+              <textarea
+                id="ideaInput"
+                class="compact-input"
+                placeholder="Example: a bug triage tool for small teams, a visual query builder, a deployment dashboard, a structured writing app."
+              ></textarea>
+            </label>
+
+            <label class="field">
+              <span class="field-label">Constraints</span>
+              <textarea
+                id="constraintsInput"
+                class="compact-input"
+                placeholder="Optional. Example: single developer, TypeScript only, no external database, responsive UI, must ship in 3 days."
+              ></textarea>
+            </label>
+
+            <p id="studioStatus" class="status idle">
+              The generator will use your learned taste profile, prompt kit, and saved code.
+            </p>
+          </article>
+
+          <article class="panel sidebar-panel">
+            <p class="panel-kicker">Blueprint</p>
+            <h2 id="blueprintTitle">No blueprint yet</h2>
+            <p id="blueprintThesis" class="result-summary">
+              Describe a product idea and the app will shape it using the learned developer profile.
+            </p>
+
+            <div id="blueprintStack" class="chip-row"></div>
+
+            <div class="blueprint-grid">
+              <div>
+                <p class="mini-heading">Taste alignment</p>
+                <ul id="blueprintTaste" class="bullet-list compact-list"></ul>
+              </div>
+              <div>
+                <p class="mini-heading">Experience principles</p>
+                <ul id="blueprintExperience" class="bullet-list compact-list"></ul>
+              </div>
+              <div>
+                <p class="mini-heading">Architecture</p>
+                <ul id="blueprintArchitecture" class="bullet-list compact-list"></ul>
+              </div>
+              <div>
+                <p class="mini-heading">Initial features</p>
+                <ul id="blueprintFeatures" class="bullet-list compact-list"></ul>
+              </div>
+              <div>
+                <p class="mini-heading">Build order</p>
+                <ul id="blueprintBuildOrder" class="bullet-list compact-list"></ul>
+              </div>
+              <div>
+                <p class="mini-heading">Guardrails</p>
+                <ul id="blueprintGuardrails" class="bullet-list compact-list"></ul>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <article class="panel memory-output studio-output">
+          <div class="memory-output-head">
+            <div>
+              <p class="panel-kicker">Starter prompt</p>
+              <h2>Prompt grounded in your learned profile</h2>
+            </div>
+          </div>
+          <pre id="starterPromptOutput" class="markdown-preview"></pre>
+        </article>
+      </section>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
