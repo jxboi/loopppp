@@ -1,0 +1,131 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply antialiased;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-3xl border border-slate-200 bg-white shadow-[0_1px_0_rgba(27,31,36,0.04),0_10px_30px_rgba(140,149,159,0.1)];
+  }
+
+  .ghost-card {
+    @apply rounded-2xl border border-slate-200 bg-slate-50 p-4;
+  }
+
+  .subtle-button {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .toolbar-button {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .primary-button {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-700/20 bg-gradient-to-b from-emerald-500 to-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .chip {
+    @apply inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-3 py-1 font-['IBM_Plex_Mono',monospace] text-[11px] font-medium text-slate-600;
+  }
+
+  .chip-accent {
+    @apply inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1 font-['IBM_Plex_Mono',monospace] text-[11px] font-medium text-sky-700;
+  }
+
+  .section-label {
+    @apply font-['IBM_Plex_Mono',monospace] text-xs text-slate-500;
+  }
+
+  .icon {
+    @apply h-4 w-4 shrink-0;
+  }
+
+  .icon-sm {
+    @apply h-3.5 w-3.5 shrink-0;
+  }
+
+  .icon-lg {
+    @apply h-5 w-5 shrink-0;
+  }
+
+  .icon-badge {
+    @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-700;
+  }
+
+  .icon-badge-accent {
+    @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 text-sky-700;
+  }
+
+  .kicker {
+    @apply inline-flex items-center gap-2;
+  }
+
+  .code-surface {
+    @apply overflow-auto rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] px-4 py-4 font-['IBM_Plex_Mono',monospace] text-[13px] leading-7 text-slate-800;
+  }
+
+  .status-banner {
+    @apply rounded-2xl border px-4 py-3;
+  }
+
+  .modal-shell {
+    @apply w-full rounded-3xl border border-slate-200 bg-white shadow-[0_20px_80px_rgba(15,23,42,0.18)];
+  }
+
+  .dialog-body {
+    @apply max-h-[min(78vh,720px)] overflow-y-auto px-5 py-5 sm:px-6;
+  }
+
+  .hljs {
+    background: transparent;
+    color: #0f172a;
+  }
+
+  .hljs-comment,
+  .hljs-quote {
+    color: #94a3b8;
+    font-style: italic;
+  }
+
+  .hljs-keyword,
+  .hljs-selector-tag,
+  .hljs-subst,
+  .hljs-operator {
+    color: #0f766e;
+  }
+
+  .hljs-string,
+  .hljs-attr,
+  .hljs-template-tag,
+  .hljs-template-variable,
+  .hljs-regexp {
+    color: #b45309;
+  }
+
+  .hljs-title,
+  .hljs-title.class_,
+  .hljs-title.function_,
+  .hljs-function .hljs-title {
+    color: #1d4ed8;
+  }
+
+  .hljs-number,
+  .hljs-literal,
+  .hljs-symbol,
+  .hljs-bullet {
+    color: #7c3aed;
+  }
+
+  .hljs-meta,
+  .hljs-built_in,
+  .hljs-type,
+  .hljs-selector-id,
+  .hljs-selector-class {
+    color: #be185d;
+  }
+}

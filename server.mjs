@@ -3,6 +3,9 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import hljs from "highlight.js";
+import { PDFParse } from "pdf-parse";
+import prettier from "prettier";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,7 +29,10 @@ const INDEX_FILE = path.join(SNIPPETS_DIR, "index.json");
 const PROFILE_FILE = path.join(PROFILE_DIR, "profile.json");
 const CONTEXT_FILE = path.join(PROFILE_DIR, "taste-context.json");
 
-const MAX_BODY_BYTES = 1_500_000;
+const MAX_BODY_BYTES = 8_000_000;
+const MAX_REMOTE_RESPONSE_BYTES = 2_000_000;
+const MAX_IMPORTED_TEXT_CHARS = 18_000;
+const MAX_PDF_BYTES = 5_000_000;
 const LIST_LIMIT = 80;
 
 const TAG_GUIDE = [
@@ -90,7 +96,9 @@ const server = createServer(async (request, response) => {
       }
 
       const priorMemory = await readTextFile(MEMORY_FILE);
-      const profile = await readJsonFile(PROFILE_FILE, buildDefaultProfile());
+      const profile = withProfileDefaults(
+        await readJsonFile(PROFILE_FILE, buildDefaultProfile()),
+      );
       const promptKitMarkdown = await readTextFile(PROMPT_KIT_FILE);
       const analysis = await analyzeSnippet({
         input,
@@ -107,10 +115,52 @@ const server = createServer(async (request, response) => {
       return sendJson(response, 200, persisted);
     }
 
+    if (request.method === "POST" && pathname === "/api/digest-source") {
+      const body = await readJsonBody(request);
+      const input = normalizeDigestSourceInput(body);
+
+      if (!input.url && !input.pdfBase64) {
+        return sendJson(response, 400, {
+          error: "Provide a website or GitHub repository URL, or upload a PDF document.",
+        });
+      }
+
+      return sendJson(response, 200, await importDigestSource(input));
+    }
+
+    if (request.method === "POST" && pathname === "/api/profile") {
+      const body = await readJsonBody(request);
+      return sendJson(response, 200, await updateManualProfile(body));
+    }
+
+    if (request.method === "POST" && pathname === "/api/format") {
+      const body = await readJsonBody(request);
+      const input = normalizeEditorInput(body);
+
+      if (!input.code.trim()) {
+        return sendJson(response, 400, { error: "Code is required." });
+      }
+
+      return sendJson(response, 200, await formatEditorCode(input));
+    }
+
+    if (request.method === "POST" && pathname === "/api/highlight") {
+      const body = await readJsonBody(request);
+      const input = normalizeEditorInput(body);
+
+      if (!input.code.trim()) {
+        return sendJson(response, 400, { error: "Code is required." });
+      }
+
+      return sendJson(response, 200, highlightEditorCode(input));
+    }
+
     if (request.method === "POST" && pathname === "/api/generate-product") {
       const body = await readJsonBody(request);
       const idea = normalizeText(body.idea, 1200);
       const constraints = normalizeText(body.constraints, 1600);
+      const refinement = normalizeText(body.refinement, 320);
+      const context = normalizeBlueprintContext(body.context);
 
       if (!idea) {
         return sendJson(response, 400, { error: "Product idea is required." });
@@ -118,10 +168,14 @@ const server = createServer(async (request, response) => {
 
       const memoryMarkdown = await readTextFile(MEMORY_FILE);
       const promptKitMarkdown = await readTextFile(PROMPT_KIT_FILE);
-      const profile = await readJsonFile(PROFILE_FILE, buildDefaultProfile());
+      const profile = withProfileDefaults(
+        await readJsonFile(PROFILE_FILE, buildDefaultProfile()),
+      );
       const blueprint = await generateProductBlueprint({
         idea,
         constraints,
+        refinement,
+        context,
         memoryMarkdown,
         promptKitMarkdown,
         profile,
@@ -152,7 +206,9 @@ async function buildStatePayload() {
 
   const memoryMarkdown = await readTextFile(MEMORY_FILE);
   const promptKitMarkdown = await readTextFile(PROMPT_KIT_FILE);
-  const profile = await readJsonFile(PROFILE_FILE, buildDefaultProfile());
+  const profile = withProfileDefaults(
+    await readJsonFile(PROFILE_FILE, buildDefaultProfile()),
+  );
   const index = await loadSnippetIndex();
 
   return {
@@ -180,6 +236,9 @@ async function listSnippets(query) {
       const haystack = [
         item.title,
         item.source,
+        item.assetType,
+        item.sourceKind,
+        item.importedSummary,
         item.reason,
         item.notes,
         item.language,
@@ -210,11 +269,247 @@ async function getSnippetDetail(snippetId) {
 function normalizeDigestInput(body) {
   return {
     title: normalizeText(body.title, 140),
-    source: normalizeText(body.source, 160),
+    source: normalizeText(body.source, 320),
     reason: normalizeText(body.reason, 700),
     notes: normalizeText(body.notes, 1200),
     code: typeof body.code === "string" ? body.code.trim() : "",
+    assetType: normalizeArtifactType(body.assetType),
+    sourceKind: normalizeArtifactType(body.sourceKind),
+    importedSummary: normalizeText(body.importedSummary, 240),
   };
+}
+
+function normalizeDigestSourceInput(body) {
+  return {
+    url: normalizeUrl(body.url),
+    pdfName: normalizeText(body.pdfName, 160),
+    pdfBase64: normalizePdfBase64(body.pdfBase64),
+  };
+}
+
+function normalizeEditorInput(body) {
+  return {
+    code: typeof body.code === "string" ? body.code : "",
+    language: normalizeText(body.language, 40).toLowerCase(),
+  };
+}
+
+function normalizeBlueprintContext(context) {
+  const safeContext = context && typeof context === "object" ? context : {};
+  const normalizeList = (values, limit = 6, itemLimit = 180) =>
+    uniqStrings(
+      (Array.isArray(values) ? values : [])
+        .map((value) => normalizeText(value, itemLimit))
+        .filter(Boolean),
+    ).slice(0, limit);
+
+  return {
+    type: normalizeText(safeContext.type, 40),
+    title: normalizeText(safeContext.title, 160),
+    summary: normalizeText(safeContext.summary, 1200),
+    directives: normalizeList(safeContext.directives),
+    tags: normalizeList(safeContext.tags, 8, 60),
+    language: normalizeText(safeContext.language, 80),
+    digestMarkdown:
+      typeof safeContext.digestMarkdown === "string"
+        ? safeContext.digestMarkdown.slice(0, 5000).trim()
+        : "",
+    codeExcerpt:
+      typeof safeContext.codeExcerpt === "string"
+        ? safeContext.codeExcerpt.slice(0, 3200).trim()
+        : "",
+  };
+}
+
+async function importDigestSource(input) {
+  if (input.url) {
+    if (isGitHubRepositoryUrl(input.url)) {
+      return importGitHubRepository(input.url);
+    }
+
+    return importWebsiteSource(input.url);
+  }
+
+  if (input.pdfBase64) {
+    return importPdfSource(input);
+  }
+
+  throw new Error("No digest source provided.");
+}
+
+async function importWebsiteSource(url) {
+  const response = await fetchRemote(url);
+  const contentType = response.headers.get("content-type") || "";
+
+  if (/application\/pdf/i.test(contentType)) {
+    const fileName = deriveFileNameFromUrl(url) || "reference.pdf";
+    const buffer = await readResponseBuffer(response);
+    return importPdfBuffer(buffer, fileName, url);
+  }
+
+  const raw = await readResponseText(response);
+  const title =
+    normalizeText(extractHtmlTitle(raw), 140) ||
+    normalizeText(extractHeadingTexts(raw)[0], 140) ||
+    normalizeText(new URL(url).hostname, 140) ||
+    "Website reference";
+  const description = normalizeText(extractMetaDescription(raw), 320);
+  const headings = extractHeadingTexts(raw).slice(0, 6);
+  const bodyText = normalizeImportedText(extractReadableText(raw), MAX_IMPORTED_TEXT_CHARS);
+  const content = [
+    `Reference type: Website`,
+    `URL: ${url}`,
+    title ? `Title: ${title}` : "",
+    description ? `Description: ${description}` : "",
+    headings.length ? `Headings:\n- ${headings.join("\n- ")}` : "",
+    bodyText ? `Content excerpt:\n${bodyText}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  return {
+    title,
+    source: url,
+    content,
+    assetType: "website",
+    sourceKind: "website",
+    importSummary: description || `Imported website content from ${new URL(url).hostname}.`,
+  };
+}
+
+async function importGitHubRepository(url) {
+  const repoRef = parseGitHubRepositoryUrl(url);
+
+  if (!repoRef) {
+    return importWebsiteSource(url);
+  }
+
+  const headers = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "Code-Digest-Studio",
+  };
+  const repoResponse = await fetchWithTlsRetry(
+    `https://api.github.com/repos/${repoRef.owner}/${repoRef.repo}`,
+    { headers },
+  );
+
+  if (!repoResponse.ok) {
+    return importWebsiteSource(url);
+  }
+
+  const repo = await repoResponse.json();
+  let readmeText = "";
+  let topLevelEntries = [];
+
+  try {
+    const [readmeResponse, contentsResponse] = await Promise.all([
+      fetchWithTlsRetry(`https://api.github.com/repos/${repoRef.owner}/${repoRef.repo}/readme`, {
+        headers,
+      }),
+      fetchWithTlsRetry(`https://api.github.com/repos/${repoRef.owner}/${repoRef.repo}/contents`, {
+        headers,
+      }),
+    ]);
+
+    if (readmeResponse.ok) {
+      const readmePayload = await readmeResponse.json();
+      readmeText = Buffer.from(readmePayload.content || "", "base64").toString("utf8");
+    }
+
+    if (contentsResponse.ok) {
+      const contentsPayload = await contentsResponse.json();
+      topLevelEntries = (Array.isArray(contentsPayload) ? contentsPayload : [])
+        .slice(0, 12)
+        .map((entry) => `${entry.type === "dir" ? "dir" : "file"}: ${entry.name}`);
+    }
+  } catch {
+    // Metadata is enough to continue when README or contents lookup fails.
+  }
+
+  const readmeExcerpt = normalizeImportedText(readmeText, MAX_IMPORTED_TEXT_CHARS);
+  const title = normalizeText(repo.full_name || `${repoRef.owner}/${repoRef.repo}`, 140);
+  const content = [
+    `Reference type: GitHub repository`,
+    `Repository: ${repo.full_name || `${repoRef.owner}/${repoRef.repo}`}`,
+    repo.html_url ? `URL: ${repo.html_url}` : `URL: ${url}`,
+    repo.description ? `Description: ${normalizeText(repo.description, 320)}` : "",
+    repo.language ? `Primary language: ${repo.language}` : "",
+    Array.isArray(repo.topics) && repo.topics.length
+      ? `Topics: ${repo.topics.slice(0, 8).join(", ")}`
+      : "",
+    Number.isFinite(repo.stargazers_count) ? `Stars: ${repo.stargazers_count}` : "",
+    topLevelEntries.length ? `Top-level entries:\n- ${topLevelEntries.join("\n- ")}` : "",
+    readmeExcerpt ? `README excerpt:\n${readmeExcerpt}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  return {
+    title,
+    source: repo.html_url || url,
+    content,
+    assetType: "github-repo",
+    sourceKind: "github-repo",
+    importSummary:
+      normalizeText(repo.description, 240) ||
+      `Imported repository metadata and README for ${title}.`,
+  };
+}
+
+async function importPdfSource(input) {
+  const buffer = Buffer.from(input.pdfBase64, "base64");
+  return importPdfBuffer(buffer, input.pdfName || "document.pdf");
+}
+
+async function importPdfBuffer(buffer, fileName, source = "") {
+  if (!buffer.length) {
+    throw new Error("Uploaded PDF document was empty.");
+  }
+
+  if (buffer.byteLength > MAX_PDF_BYTES) {
+    throw new Error("PDF document is too large. Keep uploads under 5 MB.");
+  }
+
+  const parser = new PDFParse({ data: new Uint8Array(buffer) });
+
+  try {
+    const infoResult = await parser.getInfo().catch(() => null);
+    const textResult = await parser.getText();
+    const title =
+      normalizeText(infoResult?.info?.Title, 140) ||
+      normalizeText(fileName.replace(/\.pdf$/i, ""), 140) ||
+      "PDF document";
+    const author = normalizeText(infoResult?.info?.Author, 120);
+    const subject = normalizeText(infoResult?.info?.Subject, 180);
+    const excerpt = normalizeImportedText(textResult?.text || "", MAX_IMPORTED_TEXT_CHARS);
+    const content = [
+      "Reference type: PDF document",
+      source ? `Source: ${source}` : "",
+      fileName ? `File name: ${fileName}` : "",
+      title ? `Title: ${title}` : "",
+      author ? `Author: ${author}` : "",
+      subject ? `Subject: ${subject}` : "",
+      textResult?.total ? `Pages: ${textResult.total}` : "",
+      excerpt ? `Extracted text:\n${excerpt}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    return {
+      title,
+      source: source || fileName,
+      content,
+      assetType: "pdf",
+      sourceKind: "pdf",
+      importSummary:
+        subject ||
+        (textResult?.total
+          ? `Imported ${textResult.total} page PDF text for digesting.`
+          : "Imported PDF text for digesting."),
+    };
+  } finally {
+    await parser.destroy();
+  }
 }
 
 async function analyzeSnippet({ input, priorMemory, profile, promptKitMarkdown }) {
@@ -267,16 +562,17 @@ async function callOpenAIDigest({
 }) {
   const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
   const systemPrompt = [
-    "You are Code Digest, an AI that learns a developer's taste from code they admire.",
-    "You will analyze one snippet and update the developer's long-term memory.",
+    "You are Code Digest, an AI that learns a developer's taste from artifacts they admire.",
+    "You will analyze one saved artifact and update the developer's long-term memory.",
+    "The artifact may be raw code, imported website content, a GitHub repository summary, or extracted PDF text.",
     "Make grounded inferences only. Prefer cautious signals over inflated claims.",
-    "Use the developer's own notes and reason for saving the snippet as strong evidence.",
+    "Use the developer's own notes and reason for saving the artifact as strong evidence.",
     "Classify with one or more tags. Use this base taxonomy when appropriate:",
     TAG_GUIDE.join(", "),
     "The updatedMemoryMarkdown field must be a complete markdown document that replaces the existing style memory.",
-    "The learningEntryMarkdown field must be a markdown section about this snippet only.",
+    "The learningEntryMarkdown field must be a markdown section about this artifact only.",
     "The buildDirectives field should contain concrete instructions future code generators should follow.",
-    "The antiPatternsToAvoid field should capture what this snippet suggests the developer wants to avoid.",
+    "The antiPatternsToAvoid field should capture what this artifact suggests the developer wants to avoid.",
     "Return strict JSON only.",
   ].join(" ");
 
@@ -331,7 +627,7 @@ async function callOpenAIDigest({
             type: "input_text",
             text: JSON.stringify(
               {
-                task: "Digest this snippet and update the long-term developer taste memory.",
+                task: "Digest this saved artifact and update the long-term developer taste memory.",
                 userInput: input,
                 priorMemoryMarkdown: priorMemory,
                 promptKitMarkdown,
@@ -374,6 +670,8 @@ async function callOpenAIDigest({
 async function generateProductBlueprint({
   idea,
   constraints,
+  refinement,
+  context,
   memoryMarkdown,
   promptKitMarkdown,
   profile,
@@ -382,6 +680,8 @@ async function generateProductBlueprint({
     return buildFallbackBlueprint({
       idea,
       constraints,
+      refinement,
+      context,
       memoryMarkdown,
       promptKitMarkdown,
       profile,
@@ -392,6 +692,8 @@ async function generateProductBlueprint({
     const payload = await callOpenAIProductBlueprint({
       idea,
       constraints,
+      refinement,
+      context,
       memoryMarkdown,
       promptKitMarkdown,
       profile,
@@ -410,6 +712,8 @@ async function generateProductBlueprint({
     return buildFallbackBlueprint({
       idea,
       constraints,
+      refinement,
+      context,
       memoryMarkdown,
       promptKitMarkdown,
       profile,
@@ -421,6 +725,8 @@ async function generateProductBlueprint({
 async function callOpenAIProductBlueprint({
   idea,
   constraints,
+  refinement,
+  context,
   memoryMarkdown,
   promptKitMarkdown,
   profile,
@@ -481,6 +787,8 @@ async function callOpenAIProductBlueprint({
               {
                 idea,
                 constraints,
+                refinement,
+                context,
                 memoryMarkdown,
                 promptKitMarkdown,
                 profile,
@@ -567,6 +875,10 @@ async function buildOpenAIError(response, operation) {
 }
 
 function analyzeHeuristically(input) {
+  if (input.assetType && input.assetType !== "code") {
+    return analyzeReferenceHeuristically(input);
+  }
+
   const trimmed = input.code.trim();
   const lineCount = trimmed ? trimmed.split(/\r?\n/).length : 0;
   const lower = trimmed.toLowerCase();
@@ -754,7 +1066,7 @@ function analyzeHeuristically(input) {
     risksOrTradeoffs.push("Dense transformations can become harder to debug without careful naming.");
   }
   if (!risksOrTradeoffs.length) {
-    risksOrTradeoffs.push("A single snippet is useful evidence, but broader taste should be inferred carefully.");
+    risksOrTradeoffs.push("A single saved source is useful evidence, but broader taste should be inferred carefully.");
   }
 
   if (input.reason) {
@@ -771,7 +1083,7 @@ function analyzeHeuristically(input) {
   }
 
   if (!antiPatternsToAvoid.length) {
-    antiPatternsToAvoid.push("Avoid over-abstracting beyond what the snippet actually justifies.");
+    antiPatternsToAvoid.push("Avoid over-abstracting beyond what the source actually justifies.");
   }
 
   return {
@@ -782,11 +1094,113 @@ function analyzeHeuristically(input) {
     summary:
       "Heuristic digest based on syntax, structure, and the developer's own notes. Add an OpenAI API key to upgrade this into a deeper learning loop.",
     whyItWorks: [
-      "The snippet exposes enough syntax to identify likely language and responsibilities.",
+      "The source exposes enough structure to identify likely language and responsibilities.",
       "The structure provides evidence about readability, abstraction choices, and code taste.",
       input.reason
-        ? "The developer supplied an explicit reason for saving the snippet, which strengthens the inference."
-        : "More saved snippets will sharpen the learned profile.",
+        ? "The developer supplied an explicit reason for saving the source, which strengthens the inference."
+        : "More saved sources will sharpen the learned profile.",
+    ],
+    styleObservations,
+    inferredPreferences,
+    risksOrTradeoffs,
+    reusablePatterns,
+    buildDirectives,
+    antiPatternsToAvoid,
+  };
+}
+
+function analyzeReferenceHeuristically(input) {
+  const trimmed = input.code.trim();
+  const lower = trimmed.toLowerCase();
+  const assetLabel = formatArtifactType(input.assetType || input.sourceKind || "reference");
+  const tags = new Set(["research"]);
+  const styleObservations = [];
+  const inferredPreferences = [];
+  const reusablePatterns = [];
+  const buildDirectives = [];
+  const antiPatternsToAvoid = [];
+  const risksOrTradeoffs = [];
+
+  if (/react|tailwind|component|frontend|ui|ux|design system|interaction/i.test(lower)) {
+    tags.add("frontend");
+    inferredPreferences.push("Finds value in UI patterns, interaction details, and design references.");
+    buildDirectives.push("Translate visual and interaction references into explicit UI decisions.");
+  }
+
+  if (/api|backend|server|auth|database|schema|repository|service|architecture/i.test(lower)) {
+    tags.add("architecture");
+    tags.add("backend");
+    buildDirectives.push("Extract the structural ideas before committing to implementation details.");
+  }
+
+  if (/typescript|javascript|python|go|rust|tsx|react/i.test(lower)) {
+    tags.add("data-processing");
+    reusablePatterns.push("Capture concrete implementation cues alongside higher-level taste signals.");
+  }
+
+  if (/readme|getting started|usage|installation|documentation/i.test(lower)) {
+    styleObservations.push("The reference carries explanatory context, not just implementation detail.");
+    inferredPreferences.push("Values sources that explain intent and usage, not only final output.");
+  }
+
+  if (input.assetType === "github-repo") {
+    tags.add("architecture");
+    reusablePatterns.push("Use repository-level references to learn stack, structure, and product boundaries.");
+    styleObservations.push("Repository metadata offers clues about preferred stack, product shape, and file organization.");
+  }
+
+  if (input.assetType === "website") {
+    tags.add("frontend");
+    styleObservations.push("Website references capture product framing, language, and interface cues.");
+    reusablePatterns.push("Lift vocabulary, hierarchy, and product positioning into future briefs.");
+  }
+
+  if (input.assetType === "pdf") {
+    tags.add("business-logic");
+    styleObservations.push("Document references often surface richer rationale, terminology, and long-form intent.");
+    buildDirectives.push("Summarize the strongest ideas from the document before turning them into implementation tasks.");
+  }
+
+  if (input.reason) {
+    inferredPreferences.push(`The developer explicitly values: ${input.reason}`);
+    buildDirectives.push(`Keep this stated intent visible: ${input.reason}`);
+  }
+
+  if (input.notes) {
+    styleObservations.push(`Saved note: ${input.notes}`);
+  }
+
+  if (!styleObservations.length) {
+    styleObservations.push("The imported reference gives broader context than raw code alone.");
+  }
+
+  if (!inferredPreferences.length) {
+    inferredPreferences.push("Uses references to sharpen taste, product direction, and implementation preferences.");
+  }
+
+  if (!reusablePatterns.length) {
+    reusablePatterns.push("Condense external references into a short set of reusable directives.");
+  }
+
+  if (!buildDirectives.length) {
+    buildDirectives.push("Turn the imported material into concrete decisions the next implementation can follow.");
+  }
+
+  antiPatternsToAvoid.push("Avoid copying imported material verbatim without extracting the underlying taste signal.");
+  risksOrTradeoffs.push("Reference material can be broader and noisier than code, so only strong recurring signals should shape the profile.");
+
+  return {
+    title: input.title || buildTitle(assetLabel, tags),
+    language: assetLabel,
+    languageConfidence: 0.84,
+    tags: [...tags],
+    summary: `Heuristic digest based on imported ${assetLabel.toLowerCase()} content and the developer's own notes.`,
+    whyItWorks: [
+      "The imported reference adds product, architectural, or stylistic context beyond raw code alone.",
+      "Structured extraction keeps the source reviewable before it becomes part of the learned memory.",
+      input.reason
+        ? "The developer supplied an explicit reason for saving the reference, which strengthens the inference."
+        : "More imported references and saved sources will sharpen the learned profile.",
     ],
     styleObservations,
     inferredPreferences,
@@ -818,6 +1232,7 @@ function buildFallbackAnalysis({
     `## ${timestamp} · ${heuristic.title}`,
     "",
     `- Mode: heuristic`,
+    `- Artifact type: ${formatArtifactType(input.assetType || input.sourceKind || "code")}`,
     `- Language: ${heuristic.language} (${Math.round(heuristic.languageConfidence * 100)}% confidence)`,
     `- Tags: ${heuristic.tags.join(", ")}`,
     input.source ? `- Source: ${input.source}` : "",
@@ -861,16 +1276,17 @@ function buildFallbackMemoryMarkdown({
   timestamp,
   error,
 }) {
-  const priorSections = priorMemory && !/No digests yet\./.test(priorMemory) ? priorMemory.trim() : "";
+  const priorSections =
+    priorMemory && !/No sources digested yet\./.test(priorMemory) ? priorMemory.trim() : "";
   const evidenceLines = heuristic.inferredPreferences.length
     ? heuristic.inferredPreferences
-    : ["Collect more snippets to sharpen this profile."];
+    : ["Collect more saved sources to sharpen this profile."];
   const directiveLines = heuristic.buildDirectives.length
     ? heuristic.buildDirectives
     : ["Keep future implementations explicit and intention-revealing."];
   const avoidLines = heuristic.antiPatternsToAvoid.length
     ? heuristic.antiPatternsToAvoid
-    : ["Avoid inferring too much from a single snippet."];
+    : ["Avoid inferring too much from a single saved source."];
   const promptKitHint = promptKitMarkdown.trim()
     ? "Future generators should also consult prompt-kit.md for the operational version of this taste profile."
     : "";
@@ -885,7 +1301,7 @@ function buildFallbackMemoryMarkdown({
     "## Current Hypotheses",
     ...evidenceLines.map((item) => `- ${item}`),
     "",
-    "## Style Signals From The Latest Snippet",
+    "## Style Signals From The Latest Artifact",
     ...heuristic.styleObservations.map((item) => `- ${item}`),
     "",
     "## Build Directives",
@@ -896,6 +1312,9 @@ function buildFallbackMemoryMarkdown({
     "",
     "## Language Lean",
     `- ${heuristic.language}`,
+    input.assetType && input.assetType !== "code"
+      ? `- Latest imported artifact: ${formatArtifactType(input.assetType)}`
+      : "",
     input.reason ? `- Explicitly valued by developer: ${input.reason}` : "",
     input.source ? `- Recent source: ${input.source}` : "",
     promptKitHint ? "" : "",
@@ -926,14 +1345,14 @@ function normalizeAnalysis(analysis) {
     antiPatternsToAvoid: uniqStrings(analysis.antiPatternsToAvoid),
     learningEntryMarkdown: analysis.learningEntryMarkdown || "## Learning entry unavailable",
     updatedMemoryMarkdown:
-      analysis.updatedMemoryMarkdown || "# Developer Taste Memory\n\nNo digests yet.\n",
+      analysis.updatedMemoryMarkdown || "# Developer Taste Memory\n\nNo sources digested yet.\n",
     mode: analysis.mode || "unknown",
     model: analysis.model || "unknown",
     requestId: analysis.requestId || randomUUID(),
   };
 }
 
-async function persistLearning({ input, analysis }) {
+async function persistLearning({ input, analysis, previousProfile }) {
   await ensureDataDirectories();
 
   const timestamp = new Date().toISOString();
@@ -954,6 +1373,9 @@ async function persistLearning({ input, analysis }) {
     updatedAt: timestamp,
     title: input.title || analysis.title,
     source: input.source,
+    assetType: input.assetType || "code",
+    sourceKind: input.sourceKind || input.assetType || "code",
+    importedSummary: input.importedSummary || "",
     reason: input.reason,
     notes: input.notes,
     code: input.code,
@@ -984,7 +1406,7 @@ async function persistLearning({ input, analysis }) {
   const nextIndex = [buildIndexRecord(detailRecord), ...index];
   await writeFile(INDEX_FILE, JSON.stringify(nextIndex, null, 2) + "\n", "utf8");
 
-  const profile = buildProfileSnapshot(nextIndex);
+  const profile = buildProfileSnapshot(nextIndex, previousProfile);
   await writeFile(PROFILE_FILE, JSON.stringify(profile, null, 2) + "\n", "utf8");
 
   const promptKitMarkdown = buildPromptKitMarkdown({
@@ -1017,6 +1439,9 @@ function buildIndexRecord(detailRecord) {
     updatedAt: detailRecord.updatedAt,
     title: detailRecord.title,
     source: detailRecord.source,
+    assetType: detailRecord.assetType,
+    sourceKind: detailRecord.sourceKind,
+    importedSummary: detailRecord.importedSummary,
     reason: detailRecord.reason,
     notes: detailRecord.notes,
     language: detailRecord.analysis.language,
@@ -1048,14 +1473,16 @@ function buildDigestMarkdown({ input, analysis, timestamp, snippetId }) {
   return [
     `# ${input.title || analysis.title}`,
     "",
-    `- Snippet ID: ${snippetId}`,
+    `- Entry ID: ${snippetId}`,
     `- Timestamp: ${timestamp}`,
     `- Mode: ${analysis.mode}`,
     `- Model: ${analysis.model}`,
     `- Request ID: ${analysis.requestId}`,
+    `- Artifact type: ${formatArtifactType(input.assetType || input.sourceKind || "code")}`,
     `- Language: ${analysis.language} (${Math.round(analysis.languageConfidence * 100)}% confidence)`,
     `- Tags: ${analysis.tags.join(", ")}`,
     input.source ? `- Source: ${input.source}` : "",
+    input.importedSummary ? `- Imported summary: ${input.importedSummary}` : "",
     input.reason ? `- Why saved: ${input.reason}` : "",
     input.notes ? `- Notes: ${input.notes}` : "",
     "",
@@ -1070,7 +1497,7 @@ function buildDigestMarkdown({ input, analysis, timestamp, snippetId }) {
     listSection("Build Directives", analysis.buildDirectives),
     listSection("Avoid", analysis.antiPatternsToAvoid),
     listSection("Risks Or Tradeoffs", analysis.risksOrTradeoffs),
-    "## Snippet",
+    "## Source Content",
     "",
     "```text",
     input.code,
@@ -1081,7 +1508,8 @@ function buildDigestMarkdown({ input, analysis, timestamp, snippetId }) {
     .join("\n");
 }
 
-function buildProfileSnapshot(index) {
+function buildProfileSnapshot(index, previousProfile) {
+  const existingProfile = withProfileDefaults(previousProfile);
   const topLanguages = countTop(index.map((item) => item.language), 5);
   const topTags = countTop(index.flatMap((item) => item.tags || []), 8);
   const topPreferences = countTop(index.flatMap((item) => item.inferredPreferences || []), 8);
@@ -1106,10 +1534,19 @@ function buildProfileSnapshot(index) {
     topDirectives,
     topAvoid,
     topSources,
+    manualProfile: existingProfile.manualProfile,
     summary:
       index.length === 0
-        ? "No snippets digested yet."
+        ? buildProfileSummaryText({
+            manualProfile: existingProfile.manualProfile,
+            topLanguages,
+            topTags,
+            topDirectives,
+            topAvoid,
+            isEmpty: true,
+          })
         : buildProfileSummaryText({
+            manualProfile: existingProfile.manualProfile,
             topLanguages,
             topTags,
             topDirectives,
@@ -1119,31 +1556,44 @@ function buildProfileSnapshot(index) {
 }
 
 function buildProfileSummaryText({
+  manualProfile,
   topLanguages,
   topTags,
   topDirectives,
   topAvoid,
+  isEmpty = false,
 }) {
+  const manualSummary = buildManualProfileSummary(manualProfile);
   const languageLead = topLanguages[0]?.value || "mixed languages";
   const tagLead = topTags.slice(0, 3).map((item) => item.value).join(", ") || "broad interests";
   const directiveLead = topDirectives[0]?.value || "favor explicit, legible code";
   const avoidLead = topAvoid[0]?.value || "avoid over-complexity";
 
-  return `Profile currently leans toward ${languageLead}, with strong evidence in ${tagLead}. The clearest build directive is "${directiveLead}". Current avoid signal: "${avoidLead}".`;
+  if (isEmpty) {
+    return manualSummary
+      ? `${manualSummary} No sources digested yet.`
+      : "No sources digested yet.";
+  }
+
+  const learnedSummary = `Profile currently leans toward ${languageLead}, with strong evidence in ${tagLead}. The clearest build directive is "${directiveLead}". Current avoid signal: "${avoidLead}".`;
+  return [manualSummary, learnedSummary].filter(Boolean).join(" ");
 }
 
 function buildPromptKitMarkdown({ profile, memoryMarkdown }) {
-  const topLanguages = formatCountList(profile.topLanguages);
-  const topTags = formatCountList(profile.topTags);
-  const topDirectives = profile.topDirectives.length
-    ? profile.topDirectives.map((item) => `- ${item.value}`)
+  const safeProfile = withProfileDefaults(profile);
+  const manualProfile = safeProfile.manualProfile;
+  const topLanguages = formatCountList(safeProfile.topLanguages);
+  const topTags = formatCountList(safeProfile.topTags);
+  const topDirectives = safeProfile.topDirectives.length
+    ? safeProfile.topDirectives.map((item) => `- ${item.value}`)
     : ["- Favor explicit, intention-revealing code."];
-  const topPatterns = profile.topPatterns.length
-    ? profile.topPatterns.map((item) => `- ${item.value}`)
-    : ["- Gather more snippets to refine reusable patterns."];
-  const topAvoid = profile.topAvoid.length
-    ? profile.topAvoid.map((item) => `- ${item.value}`)
+  const topPatterns = safeProfile.topPatterns.length
+    ? safeProfile.topPatterns.map((item) => `- ${item.value}`)
+    : ["- Gather more saved sources to refine reusable patterns."];
+  const topAvoid = safeProfile.topAvoid.length
+    ? safeProfile.topAvoid.map((item) => `- ${item.value}`)
     : ["- Avoid guessing beyond the evidence."];
+  const manualProfileLines = buildManualProfileLines(manualProfile);
 
   return [
     "# Developer Prompt Kit",
@@ -1152,10 +1602,13 @@ function buildPromptKitMarkdown({ profile, memoryMarkdown }) {
     "",
     "Use this file when generating code, shaping product decisions, or evaluating whether a solution matches the developer's taste.",
     "",
+    "## Manual Profile",
+    ...(manualProfileLines.length ? manualProfileLines : ["- No manual profile configured."]),
+    "",
     "## Snapshot",
-    `- Total digests: ${profile.totalDigests}`,
-    `- AI digests: ${profile.aiDigests}`,
-    `- Heuristic digests: ${profile.heuristicDigests}`,
+    `- Total digests: ${safeProfile.totalDigests}`,
+    `- AI digests: ${safeProfile.aiDigests}`,
+    `- Heuristic digests: ${safeProfile.heuristicDigests}`,
     `- Top languages: ${topLanguages}`,
     `- Top tags: ${topTags}`,
     "",
@@ -1176,29 +1629,38 @@ function buildPromptKitMarkdown({ profile, memoryMarkdown }) {
 }
 
 function buildTasteContext({ profile, memoryMarkdown, promptKitMarkdown }) {
+  const safeProfile = withProfileDefaults(profile);
   return {
     generatedAt: new Date().toISOString(),
-    profile,
+    profile: safeProfile,
+    manualProfile: safeProfile.manualProfile,
+    manualSummary: buildManualProfileSummary(safeProfile.manualProfile),
     memoryExcerpt: trimMarkdown(memoryMarkdown, 30),
     promptKitExcerpt: trimMarkdown(promptKitMarkdown, 30),
-    directives: profile.topDirectives.map((item) => item.value),
-    avoid: profile.topAvoid.map((item) => item.value),
-    languages: profile.topLanguages.map((item) => item.value),
-    tags: profile.topTags.map((item) => item.value),
+    directives: safeProfile.topDirectives.map((item) => item.value),
+    avoid: safeProfile.topAvoid.map((item) => item.value),
+    languages: safeProfile.topLanguages.map((item) => item.value),
+    tags: safeProfile.topTags.map((item) => item.value),
   };
 }
 
 function buildFallbackBlueprint({
   idea,
   constraints,
+  refinement,
+  context,
   memoryMarkdown,
   promptKitMarkdown,
   profile,
   error,
 }) {
+  const safeContext = normalizeBlueprintContext(context);
   const recommendedStack = pickRecommendedStack(profile);
   const tasteAlignment = [
     profile.summary,
+    safeContext.summary
+      ? `Anchor this plan to the selected context: ${safeContext.summary}`
+      : "",
     profile.topPreferences[0]?.value || "Keep the implementation explicit and grounded.",
     profile.topPatterns[0]?.value || "Prefer patterns the tool has already seen repeatedly.",
   ].filter(Boolean);
@@ -1207,10 +1669,17 @@ function buildFallbackBlueprint({
     profile.topDirectives[0]?.value || "Make the core flow obvious on first read.",
     profile.topDirectives[1]?.value || "Keep architecture legible at the boundaries.",
     profile.topPreferences[0]?.value || "Bias toward explicit contracts and named responsibilities.",
+    safeContext.directives[0]
+      ? `Carry this context cue forward: ${safeContext.directives[0]}`
+      : "",
+    refinement ? `Honor this refinement request: ${refinement}` : "",
   ];
 
   const architectureDirection = [
     `Shape the app around ${recommendedStack.join(" + ")}.`,
+    safeContext.language
+      ? `Reflect the selected context language or style cues from ${safeContext.language}.`
+      : "",
     profile.topTags.some((item) => item.value === "frontend")
       ? "Invest in deliberate UI composition instead of generic scaffolding."
       : "Keep the user-facing flow simple and well bounded.",
@@ -1220,10 +1689,14 @@ function buildFallbackBlueprint({
   ];
 
   const initialFeatures = [
+    safeContext.title
+      ? `Carry forward the strongest cue from "${safeContext.title}" into the primary user flow.`
+      : "",
     `Implement the core user flow for: ${idea}`,
     "Persist the minimum data needed to make the first version useful.",
     "Expose clear state, history, or artifacts so the system stays inspectable.",
     "Add one quality feature that reflects the learned taste profile instead of shipping a bland shell.",
+    refinement ? `Apply this refinement while keeping scope controlled: ${refinement}` : "",
   ];
 
   const buildOrder = [
@@ -1231,11 +1704,14 @@ function buildFallbackBlueprint({
     "Build the smallest useful end-to-end flow.",
     "Add the UI or interaction layer with explicit states.",
     "Refine naming, structure, and test coverage where the product matters most.",
+    safeContext.title ? `Re-check the output against ${safeContext.title} before expanding scope.` : "",
   ];
 
   const guardrails = uniqStrings([
     ...profile.topAvoid.slice(0, 5).map((item) => item.value),
     constraints ? `Respect this constraint: ${constraints}` : "",
+    refinement ? `Refinement request: ${refinement}` : "",
+    ...safeContext.directives.slice(0, 3).map((item) => `Context directive: ${item}`),
     error instanceof Error ? `AI fallback reason: ${error.message}` : "",
   ]).filter(Boolean);
 
@@ -1243,21 +1719,33 @@ function buildFallbackBlueprint({
     `Build a product called "${titleCase(idea)}".`,
     `Thesis: ${profile.summary}`,
     `Recommended stack: ${recommendedStack.join(", ")}.`,
+    safeContext.title ? `Selected context: ${safeContext.title}.` : "",
+    safeContext.summary ? `Context summary: ${safeContext.summary}` : "",
     "Follow these build directives:",
     ...profile.topDirectives.slice(0, 5).map((item) => `- ${item.value}`),
+    ...safeContext.directives.slice(0, 3).map((item) => `- Context cue: ${item}`),
     "Avoid these signals:",
     ...profile.topAvoid.slice(0, 5).map((item) => `- ${item.value}`),
     constraints ? `Constraints: ${constraints}` : "",
+    refinement ? `Refinement: ${refinement}` : "",
     "",
     "Use the following taste memory excerpt as grounding:",
     trimMarkdown(promptKitMarkdown || memoryMarkdown, 24),
+    safeContext.digestMarkdown
+      ? ["", "Selected context digest excerpt:", trimMarkdown(safeContext.digestMarkdown, 20)].join("\n")
+      : "",
+    safeContext.codeExcerpt
+      ? ["", "Selected context code excerpt:", "```text", safeContext.codeExcerpt, "```"].join("\n")
+      : "",
   ]
     .filter(Boolean)
     .join("\n");
 
   return normalizeBlueprint({
     productName: titleCase(idea),
-    thesis: `A taste-aligned implementation of ${idea} shaped by the developer's saved code preferences.`,
+    thesis: safeContext.title
+      ? `A taste-aligned implementation of ${idea} shaped by the developer's saved code preferences and grounded in ${safeContext.title}.`
+      : `A taste-aligned implementation of ${idea} shaped by the developer's saved code preferences.`,
     audience: "The primary users implied by the product idea and the developer's implementation taste.",
     tasteAlignment,
     experiencePrinciples,
@@ -1293,8 +1781,15 @@ function normalizeBlueprint(blueprint) {
 }
 
 function pickRecommendedStack(profile) {
-  const languages = profile.topLanguages.map((item) => item.value.toLowerCase());
-  const tags = profile.topTags.map((item) => item.value);
+  const safeProfile = withProfileDefaults(profile);
+  const preferredStack = parsePreferredStack(safeProfile.manualProfile.preferredStack);
+
+  if (preferredStack.length) {
+    return preferredStack;
+  }
+
+  const languages = safeProfile.topLanguages.map((item) => item.value.toLowerCase());
+  const tags = safeProfile.topTags.map((item) => item.value);
 
   if (languages.some((item) => item.includes("typescript") || item.includes("tsx"))) {
     return tags.includes("frontend")
@@ -1383,7 +1878,7 @@ async function ensureDataDirectories() {
 
   const memory = await readTextFile(MEMORY_FILE);
   if (!memory) {
-    await writeFile(MEMORY_FILE, "# Developer Taste Memory\n\nNo digests yet.\n", "utf8");
+    await writeFile(MEMORY_FILE, "# Developer Taste Memory\n\nNo sources digested yet.\n", "utf8");
   }
 
   const log = await readTextFile(LOG_FILE);
@@ -1411,7 +1906,7 @@ async function ensureDataDirectories() {
       PROMPT_KIT_FILE,
       buildPromptKitMarkdown({
         profile: buildDefaultProfile(),
-        memoryMarkdown: "# Developer Taste Memory\n\nNo digests yet.\n",
+        memoryMarkdown: "# Developer Taste Memory\n\nNo sources digested yet.\n",
       }),
       "utf8",
     );
@@ -1424,7 +1919,7 @@ async function ensureDataDirectories() {
       JSON.stringify(
         buildTasteContext({
           profile: buildDefaultProfile(),
-          memoryMarkdown: "# Developer Taste Memory\n\nNo digests yet.\n",
+          memoryMarkdown: "# Developer Taste Memory\n\nNo sources digested yet.\n",
           promptKitMarkdown: await readTextFile(PROMPT_KIT_FILE),
         }),
         null,
@@ -1449,8 +1944,319 @@ function buildDefaultProfile() {
     topDirectives: [],
     topAvoid: [],
     topSources: [],
-    summary: "No snippets digested yet.",
+    manualProfile: buildDefaultManualProfile(),
+    summary: "No sources digested yet.",
   };
+}
+
+function buildDefaultManualProfile() {
+  return {
+    name: "",
+    role: "",
+    headline: "",
+    focus: "",
+    preferredStack: "",
+    designTaste: "",
+    buildNotes: "",
+  };
+}
+
+function withProfileDefaults(profile) {
+  const safeProfile = profile && typeof profile === "object" ? profile : {};
+
+  return {
+    ...buildDefaultProfile(),
+    ...safeProfile,
+    totalDigests: toNonNegativeInteger(safeProfile.totalDigests),
+    aiDigests: toNonNegativeInteger(safeProfile.aiDigests),
+    heuristicDigests: toNonNegativeInteger(safeProfile.heuristicDigests),
+    topLanguages: normalizeCountItems(safeProfile.topLanguages),
+    topTags: normalizeCountItems(safeProfile.topTags),
+    topPreferences: normalizeCountItems(safeProfile.topPreferences),
+    topPatterns: normalizeCountItems(safeProfile.topPatterns),
+    topDirectives: normalizeCountItems(safeProfile.topDirectives),
+    topAvoid: normalizeCountItems(safeProfile.topAvoid),
+    topSources: normalizeCountItems(safeProfile.topSources),
+    summary: normalizeText(safeProfile.summary, 1600) || "No sources digested yet.",
+    manualProfile: normalizeManualProfile(safeProfile.manualProfile),
+  };
+}
+
+function normalizeManualProfile(profile) {
+  const safeProfile = profile && typeof profile === "object" ? profile : {};
+
+  return {
+    name: normalizeText(safeProfile.name, 80),
+    role: normalizeText(safeProfile.role, 80),
+    headline: normalizeText(safeProfile.headline, 140),
+    focus: normalizeText(safeProfile.focus, 220),
+    preferredStack: normalizeText(safeProfile.preferredStack, 160),
+    designTaste: normalizeText(safeProfile.designTaste, 280),
+    buildNotes: normalizeText(safeProfile.buildNotes, 520),
+  };
+}
+
+function normalizeCountItems(values) {
+  return (Array.isArray(values) ? values : [])
+    .filter(
+      (item) =>
+        item &&
+        typeof item === "object" &&
+        typeof item.value === "string" &&
+        item.value.trim(),
+    )
+    .map((item) => ({
+      value: item.value.trim(),
+      count: toNonNegativeInteger(item.count) || 1,
+    }));
+}
+
+async function updateManualProfile(body) {
+  await ensureDataDirectories();
+
+  const existingProfile = withProfileDefaults(
+    await readJsonFile(PROFILE_FILE, buildDefaultProfile()),
+  );
+  const nextManualProfile = {
+    ...existingProfile.manualProfile,
+    ...normalizeManualProfile(body.manualProfile || body),
+  };
+  const nextProfile = {
+    ...existingProfile,
+    generatedAt: new Date().toISOString(),
+    manualProfile: nextManualProfile,
+    summary: buildProfileSummaryText({
+      manualProfile: nextManualProfile,
+      topLanguages: existingProfile.topLanguages,
+      topTags: existingProfile.topTags,
+      topDirectives: existingProfile.topDirectives,
+      topAvoid: existingProfile.topAvoid,
+      isEmpty: existingProfile.totalDigests === 0,
+    }),
+  };
+  const memoryMarkdown = await readTextFile(MEMORY_FILE);
+  const promptKitMarkdown = buildPromptKitMarkdown({
+    profile: nextProfile,
+    memoryMarkdown,
+  });
+  const tasteContext = buildTasteContext({
+    profile: nextProfile,
+    memoryMarkdown,
+    promptKitMarkdown,
+  });
+  const index = await loadSnippetIndex();
+
+  await writeFile(PROFILE_FILE, JSON.stringify(nextProfile, null, 2) + "\n", "utf8");
+  await writeFile(PROMPT_KIT_FILE, promptKitMarkdown, "utf8");
+  await writeFile(CONTEXT_FILE, JSON.stringify(tasteContext, null, 2) + "\n", "utf8");
+
+  return {
+    profile: nextProfile,
+    promptKitMarkdown,
+    memoryMarkdown,
+    recentDigests: index.slice(0, 12),
+  };
+}
+
+async function formatEditorCode({ code, language }) {
+  const parser = pickPrettierParser(language, code);
+
+  if (!parser) {
+    return {
+      code,
+      parser: null,
+      language: language || inferEditorLanguage(code),
+      changed: false,
+      unsupported: true,
+    };
+  }
+
+  try {
+    const formatted = await prettier.format(code, { parser });
+
+    return {
+      code: formatted,
+      parser,
+      language: language || inferEditorLanguage(formatted),
+      changed: formatted !== code,
+      unsupported: false,
+    };
+  } catch (error) {
+    throw new Error(
+      `Unable to format this content${parser ? ` with parser "${parser}"` : ""}. ${formatErrorMessage(error)}`,
+    );
+  }
+}
+
+function highlightEditorCode({ code, language }) {
+  const requestedLanguage = normalizeHighlightLanguage(language);
+  const highlighted =
+    requestedLanguage && hljs.getLanguage(requestedLanguage)
+      ? hljs.highlight(code, {
+          language: requestedLanguage,
+          ignoreIllegals: true,
+        })
+      : hljs.highlightAuto(code);
+
+  return {
+    html: highlighted.value,
+    language:
+      highlighted.language ||
+      requestedLanguage ||
+      normalizeHighlightLanguage(inferEditorLanguage(code)) ||
+      "plaintext",
+    requestedLanguage: requestedLanguage || null,
+    lineCount: code.split(/\r?\n/).length,
+  };
+}
+
+function pickPrettierParser(language, code) {
+  const normalized = normalizeFormatLanguage(language) || normalizeFormatLanguage(inferEditorLanguage(code));
+
+  if (!normalized) {
+    return null;
+  }
+
+  const parserMap = {
+    html: "html",
+    css: "css",
+    scss: "scss",
+    less: "less",
+    json: "json",
+    markdown: "markdown",
+    md: "markdown",
+    yaml: "yaml",
+    yml: "yaml",
+    graphql: "graphql",
+    javascript: "babel",
+    js: "babel",
+    jsx: "babel",
+    typescript: "typescript",
+    ts: "typescript",
+    tsx: "typescript",
+  };
+
+  return parserMap[normalized] || null;
+}
+
+function inferEditorLanguage(code) {
+  return analyzeHeuristically({
+    title: "",
+    source: "",
+    reason: "",
+    notes: "",
+    code,
+  }).language;
+}
+
+function normalizeFormatLanguage(language) {
+  const safeLanguage = normalizeText(language, 40).toLowerCase();
+
+  if (!safeLanguage || safeLanguage === "auto") {
+    return "";
+  }
+
+  const aliasMap = {
+    "tsx / react": "tsx",
+    "typescript": "typescript",
+    "typescript react": "tsx",
+    "javascript": "javascript",
+    "jsx / react": "jsx",
+    "jsx": "jsx",
+    "python": "python",
+    "go": "go",
+    "rust": "rust",
+    "sql": "sql",
+    "css": "css",
+    "html": "html",
+    "markdown": "markdown",
+    "json": "json",
+    "yaml": "yaml",
+  };
+
+  return aliasMap[safeLanguage] || safeLanguage;
+}
+
+function normalizeHighlightLanguage(language) {
+  const normalized = normalizeFormatLanguage(language);
+
+  const aliasMap = {
+    javascript: "javascript",
+    jsx: "javascript",
+    typescript: "typescript",
+    tsx: "typescript",
+    python: "python",
+    go: "go",
+    rust: "rust",
+    sql: "sql",
+    html: "xml",
+    css: "css",
+    json: "json",
+    markdown: "markdown",
+    yaml: "yaml",
+  };
+
+  return aliasMap[normalized] || "";
+}
+
+function buildManualProfileSummary(profile) {
+  const safeProfile = normalizeManualProfile(profile);
+  const parts = [];
+  const identity = [safeProfile.name, safeProfile.role].filter(Boolean).join(", ");
+
+  if (identity) {
+    parts.push(identity);
+  }
+
+  if (safeProfile.headline) {
+    parts.push(safeProfile.headline);
+  }
+
+  if (safeProfile.focus) {
+    parts.push(`Focus: ${safeProfile.focus}.`);
+  }
+
+  if (safeProfile.preferredStack) {
+    parts.push(`Preferred stack: ${safeProfile.preferredStack}.`);
+  }
+
+  if (safeProfile.designTaste) {
+    parts.push(`Design taste: ${safeProfile.designTaste}.`);
+  }
+
+  if (safeProfile.buildNotes) {
+    parts.push(`Build notes: ${safeProfile.buildNotes}.`);
+  }
+
+  return parts.join(" ");
+}
+
+function buildManualProfileLines(profile) {
+  const safeProfile = normalizeManualProfile(profile);
+  const lines = [];
+
+  if (safeProfile.name) lines.push(`- Name: ${safeProfile.name}`);
+  if (safeProfile.role) lines.push(`- Role: ${safeProfile.role}`);
+  if (safeProfile.headline) lines.push(`- Headline: ${safeProfile.headline}`);
+  if (safeProfile.focus) lines.push(`- Focus: ${safeProfile.focus}`);
+  if (safeProfile.preferredStack) lines.push(`- Preferred stack: ${safeProfile.preferredStack}`);
+  if (safeProfile.designTaste) lines.push(`- Design taste: ${safeProfile.designTaste}`);
+  if (safeProfile.buildNotes) lines.push(`- Build notes: ${safeProfile.buildNotes}`);
+
+  return lines;
+}
+
+function parsePreferredStack(value) {
+  return uniqStrings(
+    normalizeText(value, 160)
+      .split(/\s*,\s*|\s*\+\s*/)
+      .map((item) => item.trim()),
+  ).slice(0, 4);
+}
+
+function toNonNegativeInteger(value) {
+  const parsed = Number.parseInt(String(value || 0), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
 async function readTextFile(filePath) {
@@ -1503,6 +2309,59 @@ function normalizeText(value, maxLength) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
 
+function normalizeArtifactType(value) {
+  const safeValue = normalizeText(value, 40).toLowerCase();
+
+  if (!safeValue) {
+    return "code";
+  }
+
+  const aliasMap = {
+    code: "code",
+    snippet: "code",
+    website: "website",
+    web: "website",
+    repo: "github-repo",
+    repository: "github-repo",
+    github: "github-repo",
+    "github-repo": "github-repo",
+    pdf: "pdf",
+    document: "pdf",
+  };
+
+  return aliasMap[safeValue] || "code";
+}
+
+function normalizeUrl(value) {
+  const safeValue = normalizeText(value, 1000);
+
+  if (!safeValue) {
+    return "";
+  }
+
+  const normalizedInput = /^[a-z][a-z0-9+.-]*:\/\//i.test(safeValue)
+    ? safeValue
+    : `https://${safeValue}`;
+
+  try {
+    const normalized = new URL(normalizedInput);
+    return /^https?:$/i.test(normalized.protocol) ? normalized.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+function normalizePdfBase64(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value
+    .trim()
+    .replace(/^data:application\/pdf;base64,/i, "")
+    .replace(/\s+/g, "");
+}
+
 function uniqStrings(values) {
   return [
     ...new Set(
@@ -1548,12 +2407,207 @@ function trimMarkdown(markdown, maxLines) {
   return `${lines.slice(0, maxLines).join("\n")}\n...`;
 }
 
+function formatArtifactType(value) {
+  const normalized = normalizeArtifactType(value);
+  const labelMap = {
+    code: "Code snippet",
+    website: "Website reference",
+    "github-repo": "GitHub repository",
+    pdf: "PDF document",
+  };
+
+  return labelMap[normalized] || "Reference";
+}
+
+function isGitHubRepositoryUrl(value) {
+  return Boolean(parseGitHubRepositoryUrl(value));
+}
+
+function parseGitHubRepositoryUrl(value) {
+  try {
+    const url = new URL(value);
+
+    if (url.hostname !== "github.com") {
+      return null;
+    }
+
+    const segments = url.pathname.split("/").filter(Boolean);
+
+    if (segments.length < 2) {
+      return null;
+    }
+
+    return {
+      owner: segments[0],
+      repo: segments[1].replace(/\.git$/i, ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchRemote(url) {
+  const response = await fetchWithTlsRetry(url, {
+    headers: {
+      "User-Agent": "Code-Digest-Studio",
+      Accept: "text/html, text/plain, application/json, application/pdf;q=0.9, */*;q=0.8",
+    },
+    redirect: "follow",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Unable to fetch "${url}". Received ${response.status}.`);
+  }
+
+  const declaredLength = Number.parseInt(response.headers.get("content-length") || "0", 10);
+
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_REMOTE_RESPONSE_BYTES) {
+    throw new Error("Remote content is too large to import into Digest.");
+  }
+
+  return response;
+}
+
+async function fetchWithTlsRetry(url, options = {}) {
+  try {
+    return await fetch(url, options);
+  } catch (error) {
+    if (!shouldRetryTlsFetch(error)) {
+      throw error;
+    }
+
+    const previous = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
+    try {
+      return await fetch(url, options);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+      } else {
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = previous;
+      }
+    }
+  }
+}
+
+function shouldRetryTlsFetch(error) {
+  const code = error?.cause?.code || error?.code || "";
+  return [
+    "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+    "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+    "SELF_SIGNED_CERT_IN_CHAIN",
+    "DEPTH_ZERO_SELF_SIGNED_CERT",
+  ].includes(code);
+}
+
+async function readResponseBuffer(response) {
+  const buffer = Buffer.from(await response.arrayBuffer());
+
+  if (buffer.byteLength > MAX_REMOTE_RESPONSE_BYTES) {
+    throw new Error("Remote content is too large to import into Digest.");
+  }
+
+  return buffer;
+}
+
+async function readResponseText(response) {
+  return (await readResponseBuffer(response)).toString("utf8");
+}
+
+function normalizeImportedText(value, maxLength = MAX_IMPORTED_TEXT_CHARS) {
+  return String(value || "")
+    .replace(/\u0000/g, " ")
+    .replace(/\r/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function extractHtmlTitle(html) {
+  return matchHtmlText(html, /<title[^>]*>([\s\S]*?)<\/title>/i);
+}
+
+function extractMetaDescription(html) {
+  return (
+    matchHtmlAttribute(html, /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i) ||
+    matchHtmlAttribute(html, /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i) ||
+    matchHtmlAttribute(html, /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)
+  );
+}
+
+function extractHeadingTexts(html) {
+  return uniqStrings(
+    [...String(html || "").matchAll(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi)]
+      .map((match) => decodeHtmlEntities(stripHtmlTags(match[1])))
+      .map((value) => normalizeText(value, 180))
+      .filter(Boolean),
+  );
+}
+
+function extractReadableText(html) {
+  const withoutScripts = String(html || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<svg[\s\S]*?<\/svg>/gi, " ");
+
+  return decodeHtmlEntities(stripHtmlTags(withoutScripts));
+}
+
+function stripHtmlTags(value) {
+  return String(value || "")
+    .replace(/<\/(p|div|section|article|h1|h2|h3|h4|h5|h6|li|ul|ol|br|tr|td|th)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ");
+}
+
+function matchHtmlText(html, pattern) {
+  const match = String(html || "").match(pattern);
+  return match ? decodeHtmlEntities(stripHtmlTags(match[1])) : "";
+}
+
+function matchHtmlAttribute(html, pattern) {
+  const match = String(html || "").match(pattern);
+  return match ? decodeHtmlEntities(match[1]) : "";
+}
+
+function decodeHtmlEntities(value) {
+  return String(value || "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&#x2F;/gi, "/");
+}
+
+function deriveFileNameFromUrl(value) {
+  try {
+    const url = new URL(value);
+    const segments = url.pathname.split("/").filter(Boolean);
+    return segments.at(-1) || "";
+  } catch {
+    return "";
+  }
+}
+
 function previewCode(code) {
   return code.replace(/\s+/g, " ").trim().slice(0, 200);
 }
 
 function buildTitle(language, tags) {
   const safeTags = Array.isArray(tags) ? tags : [...tags];
+  const normalizedLanguage = String(language || "").toLowerCase();
+
+  if (
+    /website|repository|document|reference/.test(normalizedLanguage) ||
+    safeTags.includes("research")
+  ) {
+    return `${language} digest`;
+  }
 
   if (safeTags.includes("frontend")) return `${language} UI snippet digest`;
   if (safeTags.includes("backend")) return `${language} service snippet digest`;

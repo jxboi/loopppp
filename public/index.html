@@ -4,177 +4,601 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Code Digest Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="/styles.css" />
   </head>
-  <body>
-    <div class="glow glow-one"></div>
-    <div class="glow glow-two"></div>
-
-    <main class="shell">
-      <header class="hero">
-        <div class="hero-copy">
-          <p class="eyebrow">Code digest studio</p>
-          <h1>Teach the tool your taste. Then build with it.</h1>
-          <p class="lede">
-            Save admired snippets, extract the developer signals inside them, and use
-            that living memory to shape future products.
-          </p>
+  <body class="min-h-screen bg-[linear-gradient(180deg,rgba(208,215,222,0.16),transparent_220px),linear-gradient(180deg,#f6f8fa_0%,#ffffff_32%,#f6f8fa_100%)] font-['IBM_Plex_Sans',sans-serif] text-slate-800">
+    <svg aria-hidden="true" class="hidden" xmlns="http://www.w3.org/2000/svg">
+      <symbol id="icon-code" viewBox="0 0 24 24">
+        <path d="M8 8 4 12l4 4M16 8l4 4-4 4M14 4l-4 16" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" />
+      </symbol>
+      <symbol id="icon-folder" viewBox="0 0 24 24">
+        <path d="M3 8.5A1.5 1.5 0 0 1 4.5 7H9l2 2h8.5A1.5 1.5 0 0 1 21 10.5v7A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" />
+      </symbol>
+      <symbol id="icon-sparkles" viewBox="0 0 24 24">
+        <path d="m12 3 1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6ZM5 16l.8 2.2L8 19l-2.2.8L5 22l-.8-2.2L2 19l2.2-.8ZM19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" />
+      </symbol>
+      <symbol id="icon-route" viewBox="0 0 24 24">
+        <circle cx="6" cy="6" r="2.5" fill="none" stroke="currentColor" stroke-width="1.8" />
+        <circle cx="18" cy="18" r="2.5" fill="none" stroke="currentColor" stroke-width="1.8" />
+        <path d="M8.5 6H12a3 3 0 0 1 3 3v1a3 3 0 0 0 3 3h.5M15.5 18H12a3 3 0 0 1-3-3v-1a3 3 0 0 0-3-3H5.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" />
+      </symbol>
+      <symbol id="icon-user" viewBox="0 0 24 24">
+        <path d="M18 20a6 6 0 0 0-12 0M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" />
+      </symbol>
+      <symbol id="icon-file" viewBox="0 0 24 24">
+        <path d="M14 3H7.5A1.5 1.5 0 0 0 6 4.5v15A1.5 1.5 0 0 0 7.5 21h9a1.5 1.5 0 0 0 1.5-1.5V8Zm0 0 4 5h-4ZM9 13h6M9 17h6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" />
+      </symbol>
+      <symbol id="icon-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8" />
+        <path d="m16 16 4 4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.8" />
+      </symbol>
+      <symbol id="icon-compass" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8" />
+        <path d="m14.8 9.2-4.3 1.7-1.7 4.3 4.3-1.7Z" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="1.8" />
+      </symbol>
+      <symbol id="icon-link" viewBox="0 0 24 24">
+        <path d="M10 14 8 16a3 3 0 0 1-4.2-4.2l3-3A3 3 0 0 1 11 9M14 10l2-2a3 3 0 0 1 4.2 4.2l-3 3A3 3 0 0 1 13 15M9 15l6-6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" />
+      </symbol>
+      <symbol id="icon-layers" viewBox="0 0 24 24">
+        <path d="m12 4 8 4-8 4-8-4Zm0 8 8 4-8 4-8-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" />
+      </symbol>
+      <symbol id="icon-bolt" viewBox="0 0 24 24">
+        <path d="M13 2 5 13h5l-1 9 8-11h-5z" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="1.8" />
+      </symbol>
+      <symbol id="icon-sliders" viewBox="0 0 24 24">
+        <path d="M4 6h6M14 6h6M4 12h10M18 12h2M4 18h2M10 18h10" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.8" />
+        <circle cx="12" cy="6" r="2" fill="none" stroke="currentColor" stroke-width="1.8" />
+        <circle cx="16" cy="12" r="2" fill="none" stroke="currentColor" stroke-width="1.8" />
+        <circle cx="8" cy="18" r="2" fill="none" stroke="currentColor" stroke-width="1.8" />
+      </symbol>
+      <symbol id="icon-info" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8" />
+        <path d="M12 10v5M12 7h.01" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.8" />
+      </symbol>
+    </svg>
+    <header class="sticky top-0 z-30 border-b border-slate-800 bg-slate-900/95 backdrop-blur">
+      <div class="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+        <div class="flex min-w-0 items-center gap-3">
+          <div class="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-white/15 bg-white/10 font-['IBM_Plex_Mono',monospace] text-xs font-semibold text-slate-50">
+            &lt;/&gt;
+          </div>
+          <div class="min-w-0">
+            <p class="truncate text-sm font-semibold text-slate-50">Code Digest Studio</p>
+            <p class="truncate text-xs text-slate-400">Source memory, profile shaping, and blueprint drafting</p>
+          </div>
         </div>
 
-        <section class="metric-strip">
-          <article class="metric-card">
-            <span class="metric-label">Digests</span>
-            <strong id="metricTotal">0</strong>
-          </article>
-          <article class="metric-card">
-            <span class="metric-label">Top language</span>
-            <strong id="metricLanguage">None yet</strong>
-          </article>
-          <article class="metric-card">
-            <span class="metric-label">Top tag</span>
-            <strong id="metricTag">None yet</strong>
-          </article>
-          <article class="metric-card">
-            <span class="metric-label">Primary directive</span>
-            <strong id="metricDirective">Collect signals</strong>
-          </article>
-        </section>
-      </header>
+        <div class="flex items-center gap-2">
+          <div class="hidden rounded-full border border-white/15 bg-white/10 px-3 py-2 font-['IBM_Plex_Mono',monospace] text-[11px] text-slate-200 lg:block">
+            <span id="headerProfileBadge">Profile not configured</span>
+          </div>
+          <button
+            class="inline-flex items-center rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-sm font-medium text-slate-100 transition hover:bg-white/15"
+            data-modal-open="workspaceModal"
+            type="button"
+            title="Open prompt kit, memory, exports, and recent digests"
+          >
+            <svg class="icon-sm text-slate-300" aria-hidden="true"><use href="#icon-folder"></use></svg>
+            Workspace
+          </button>
+          <button
+            class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-sm font-semibold text-slate-100 transition hover:bg-white/15"
+            data-modal-open="helpModal"
+            type="button"
+            title="Open the short workflow guide"
+          >
+            <svg class="icon text-slate-300" aria-hidden="true"><use href="#icon-info"></use></svg>
+          </button>
+        </div>
+      </div>
+    </header>
 
-      <nav class="tabs" aria-label="App views">
-        <button class="tab is-active" data-view-target="digest" type="button">Digest</button>
-        <button class="tab" data-view-target="library" type="button">Library</button>
-        <button class="tab" data-view-target="studio" type="button">Studio</button>
+    <main class="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+      <section class="panel px-5 py-5 sm:px-6">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div class="max-w-3xl">
+            <p class="font-['IBM_Plex_Mono',monospace] text-xs font-medium text-sky-700">Active workspace</p>
+            <h1 class="mt-1 text-2xl font-semibold tracking-[-0.04em] text-slate-900 sm:text-3xl">
+              Digest code quickly. Keep the details behind the edges.
+            </h1>
+            <p id="workspaceSummary" class="mt-3 text-sm leading-7 text-slate-600">
+              Set a profile, digest sources, and reuse the learned signals without loading the page with explanation.
+            </p>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <div class="chip">Digests <span id="metricTotal" class="ml-2 text-slate-900">0</span></div>
+            <div class="chip">Language <span id="metricLanguage" class="ml-2 text-slate-900">None yet</span></div>
+            <div class="chip">Tag <span id="metricTag" class="ml-2 text-slate-900">None yet</span></div>
+            <div class="chip">Directive <span id="metricDirective" class="ml-2 text-slate-900">Collect signals</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel mt-6 px-5 py-5 sm:px-6" aria-labelledby="flowGuideTitle">
+        <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div class="max-w-3xl">
+            <div class="kicker">
+              <svg class="icon-sm text-sky-700" aria-hidden="true"><use href="#icon-route"></use></svg>
+              <p class="section-label">Guided flow</p>
+              <span id="flowProgressLabel" class="chip-accent">Step 1 of 5</span>
+            </div>
+            <h2 id="flowGuideTitle" class="mt-2 text-xl font-semibold tracking-[-0.03em] text-slate-900">
+              Add a source to start the loop.
+            </h2>
+            <p id="flowProgressDescription" class="mt-2 text-sm leading-7 text-slate-600">
+              Add code directly or import a source in Digest first. Each step unlocks the next one without forcing extra setup.
+            </p>
+          </div>
+
+          <button id="flowPrimaryActionButton" class="primary-button" type="button">
+            Go to Digest
+          </button>
+        </div>
+
+        <div class="mt-4">
+          <div
+            id="flowProgressMeter"
+            class="h-2 rounded-full bg-slate-100"
+            role="progressbar"
+            aria-labelledby="flowGuideTitle"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+          >
+            <div
+              id="flowProgressBar"
+              class="h-full rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-emerald-500 transition-all duration-300"
+              style="width: 0%"
+            ></div>
+          </div>
+        </div>
+
+        <div id="flowSteps" class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5"></div>
+      </section>
+
+      <nav class="mt-6 flex gap-5 overflow-x-auto border-b border-slate-200 px-1" aria-label="App views">
+        <button
+          class="shrink-0 border-b-2 border-sky-600 px-1 pb-4 pt-1 text-sm font-semibold text-slate-900 transition"
+          data-view-target="digest"
+          type="button"
+        >
+          <span class="inline-flex items-center gap-2">
+            <svg class="icon-sm" aria-hidden="true"><use href="#icon-code"></use></svg>
+            Digest
+          </span>
+        </button>
+        <button
+          class="shrink-0 border-b-2 border-transparent px-1 pb-4 pt-1 text-sm font-semibold text-slate-500 transition hover:text-slate-900"
+          data-view-target="library"
+          type="button"
+        >
+          <span class="inline-flex items-center gap-2">
+            <svg class="icon-sm" aria-hidden="true"><use href="#icon-folder"></use></svg>
+            Library
+          </span>
+        </button>
+        <button
+          class="shrink-0 border-b-2 border-transparent px-1 pb-4 pt-1 text-sm font-semibold text-slate-500 transition hover:text-slate-900"
+          data-view-target="studio"
+          type="button"
+        >
+          <span class="inline-flex items-center gap-2">
+            <svg class="icon-sm" aria-hidden="true"><use href="#icon-compass"></use></svg>
+            Studio
+          </span>
+        </button>
       </nav>
 
-      <section class="view is-active" data-view="digest">
-        <div class="layout-two">
-          <article class="panel composer-panel">
-            <div class="panel-head">
-              <div>
-                <p class="panel-kicker">Paste code</p>
-                <h2>Teach the system from the snippet alone</h2>
-              </div>
-              <button id="digestButton" class="action-button" type="button">Digest</button>
-            </div>
-
-            <label class="field">
-              <span class="field-label">Paste code</span>
-              <textarea
-                id="codeInput"
-                class="code-input"
-                spellcheck="false"
-                placeholder="Paste any code snippet here. The app will identify the language, classify it, learn from it, and store a reusable developer-memory artifact."
-              ></textarea>
-            </label>
-
-            <div class="composer-footer">
-              <p id="statusText" class="status idle">Ready.</p>
-            </div>
-          </article>
-
-          <article class="panel knowledge-panel">
-            <div class="panel-head compact">
-              <div>
-                <p class="panel-kicker">Knowledge dock</p>
-                <h2>Learned profile and memory</h2>
-              </div>
-            </div>
-
-            <div class="segment-tabs">
-              <button
-                class="segment-tab is-active"
-                data-segment-group="knowledge"
-                data-segment-target="profile"
-                type="button"
-              >
-                Profile
-              </button>
-              <button
-                class="segment-tab"
-                data-segment-group="knowledge"
-                data-segment-target="prompt"
-                type="button"
-              >
-                Prompt kit
-              </button>
-              <button
-                class="segment-tab"
-                data-segment-group="knowledge"
-                data-segment-target="memory"
-                type="button"
-              >
-                Memory
-              </button>
-            </div>
-
-            <div
-              class="segment-panel is-active"
-              data-segment-group="knowledge"
-              data-segment-panel="profile"
-            >
-              <p id="profileSummary" class="summary-copy">Loading profile…</p>
-
-              <div class="mini-section">
-                <p class="mini-heading">Top languages</p>
-                <div id="topLanguages" class="chip-row"></div>
-              </div>
-
-              <div class="mini-section">
-                <p class="mini-heading">Top tags</p>
-                <div id="topTags" class="chip-row"></div>
-              </div>
-
-              <div class="mini-section">
-                <p class="mini-heading">Build directives</p>
-                <ul id="topDirectives" class="bullet-list compact-list"></ul>
-              </div>
-
-              <div class="mini-section">
-                <div class="recent-head">
-                  <p class="mini-heading">Recent digests</p>
+      <section class="mt-6" data-view="digest">
+        <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <article class="panel p-5 sm:p-6">
+            <div class="border-b border-slate-200 pb-4">
+              <div class="flex items-start gap-3">
+                <span class="icon-badge-accent">
+                  <svg class="icon-lg" aria-hidden="true"><use href="#icon-code"></use></svg>
+                </span>
+                <div>
+                  <p class="kicker"><svg class="icon-sm text-sky-700" aria-hidden="true"><use href="#icon-code"></use></svg><span class="section-label">Digest input</span></p>
+                  <h2 class="mt-1 text-lg font-semibold tracking-[-0.03em] text-slate-900">Digest</h2>
+                  <p class="mt-2 text-sm leading-7 text-slate-600">
+                    Paste code, or import a website, GitHub repository, or PDF, then run the digest.
+                  </p>
                 </div>
-                <ul id="recentDigests" class="recent-list"></ul>
+              </div>
+
+              <div class="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div class="flex flex-wrap gap-2 font-['IBM_Plex_Mono',monospace] text-[11px] text-slate-500">
+                  <span id="editorLineCount" class="chip">0 lines</span>
+                  <span id="editorCharCount" class="chip">0 chars</span>
+                  <span id="detectedLanguageChip" class="chip">auto</span>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    id="toggleContextButton"
+                    class="subtle-button"
+                    type="button"
+                    aria-expanded="false"
+                    aria-controls="digestContextPanel"
+                  >
+                    Add context
+                  </button>
+                  <button
+                    id="toggleToolsButton"
+                    class="subtle-button"
+                    type="button"
+                    aria-expanded="false"
+                    aria-controls="editorToolsPanel"
+                  >
+                    Show tools
+                  </button>
+                </div>
+              </div>
+
+              <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div class="flex items-start gap-3">
+                  <span class="icon-badge">
+                    <svg class="icon-lg" aria-hidden="true"><use href="#icon-link"></use></svg>
+                  </span>
+                  <div class="min-w-0 flex-1">
+                    <p class="kicker"><svg class="icon-sm text-slate-500" aria-hidden="true"><use href="#icon-link"></use></svg><span class="section-label">Import source material</span></p>
+                    <p class="mt-2 text-sm leading-7 text-slate-600">
+                      Paste code directly, or pull in a website, GitHub repository, or PDF document before digesting.
+                    </p>
+                  </div>
+                </div>
+
+                <div class="mt-4 grid gap-4 xl:grid-cols-[240px_minmax(0,1fr)] xl:items-end">
+                  <label class="block">
+                    <span class="section-label">Source type</span>
+                    <span class="mt-2 inline-flex w-full items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900">
+                      <svg class="icon-sm text-slate-500" aria-hidden="true"><use href="#icon-layers"></use></svg>
+                      <select
+                        id="digestSourceModeSelect"
+                        class="w-full bg-transparent text-sm text-slate-900 outline-none"
+                        title="Choose how to add material into Digest"
+                      >
+                        <option value="manual">Paste directly</option>
+                        <option value="link">Website or GitHub repo</option>
+                        <option value="pdf">PDF document</option>
+                      </select>
+                    </span>
+                  </label>
+                  <p class="text-sm leading-7 text-slate-600">
+                    Keep manual paste as the default. Switch modes only when you want Digest to pull source material into the editor for you.
+                  </p>
+                </div>
+
+                <div id="digestManualPanel" class="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm leading-7 text-slate-600">
+                  Paste code, notes, or copied text straight into the editor below. Use Add context if you want the digest to learn why this source matters.
+                </div>
+
+                <div id="digestLinkPanel" class="mt-4 hidden grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto]">
+                  <label class="block">
+                    <span class="section-label">Website or GitHub repository</span>
+                    <input
+                      id="digestLinkInput"
+                      class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
+                      type="url"
+                      placeholder="example.com or github.com/owner/repo"
+                    />
+                  </label>
+                  <div class="flex items-end">
+                    <button id="importLinkButton" class="subtle-button" type="button">
+                      <svg class="icon-sm" aria-hidden="true"><use href="#icon-link"></use></svg>
+                      Import link
+                    </button>
+                  </div>
+                </div>
+
+                <div id="digestPdfPanel" class="mt-4 hidden grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto]">
+                  <label class="block">
+                    <span class="section-label">PDF document</span>
+                    <input
+                      id="digestPdfInput"
+                      class="mt-2 block w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 file:mr-3 file:rounded-xl file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-slate-800"
+                      type="file"
+                      accept="application/pdf"
+                    />
+                  </label>
+                  <div class="flex items-end">
+                    <button id="importPdfButton" class="subtle-button" type="button">
+                      <svg class="icon-sm" aria-hidden="true"><use href="#icon-file"></use></svg>
+                      Import PDF
+                    </button>
+                  </div>
+                </div>
+
+                <div class="mt-4 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span id="digestImportChip" class="chip">Manual input</span>
+                      <p id="digestImportTitle" class="text-sm font-semibold text-slate-900">Nothing imported yet</p>
+                    </div>
+                    <p id="digestImportSummary" class="mt-2 text-sm leading-6 text-slate-600">
+                      Import a URL or PDF to pull external material into the digest editor.
+                    </p>
+                  </div>
+                  <button id="clearImportedSourceButton" class="subtle-button px-3 py-1.5 text-xs" type="button" disabled>
+                    Clear import
+                  </button>
+                </div>
+              </div>
+
+              <div id="digestContextPanel" class="mt-4 hidden rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div class="grid gap-4 lg:grid-cols-2">
+                  <label class="block">
+                    <span class="section-label">Title</span>
+                    <input
+                      id="snippetTitleInput"
+                      class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
+                      type="text"
+                      placeholder="Optional source title"
+                    />
+                  </label>
+                  <label class="block">
+                    <span class="section-label">Source</span>
+                    <input
+                      id="snippetSourceInput"
+                      class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
+                      type="text"
+                      placeholder="GitHub Gist, docs, repo path..."
+                    />
+                  </label>
+                </div>
+
+                <div class="mt-4 grid gap-4 lg:grid-cols-2">
+                  <label class="block">
+                    <span class="section-label">Why saved</span>
+                    <textarea
+                      id="snippetReasonInput"
+                      class="mt-2 min-h-[96px] w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-7 text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
+                      placeholder="What should the digest learn from this source?"
+                    ></textarea>
+                  </label>
+                  <label class="block">
+                    <span class="section-label">Notes</span>
+                    <textarea
+                      id="snippetNotesInput"
+                      class="mt-2 min-h-[96px] w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-7 text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
+                      placeholder="Optional implementation or design notes"
+                    ></textarea>
+                  </label>
+                </div>
+              </div>
+
+              <div id="editorToolsPanel" class="mt-4 hidden rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                  <div class="flex flex-wrap gap-2">
+                    <label class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                      <span class="font-medium text-slate-500">Lang</span>
+                      <select
+                        id="editorLanguage"
+                        class="bg-transparent pr-4 text-sm text-slate-900 outline-none"
+                        title="Pick a language or leave it on auto"
+                      >
+                        <option value="auto">Auto</option>
+                        <option value="tsx">TSX / React</option>
+                        <option value="typescript">TypeScript</option>
+                        <option value="javascript">JavaScript</option>
+                        <option value="python">Python</option>
+                        <option value="go">Go</option>
+                        <option value="rust">Rust</option>
+                        <option value="json">JSON</option>
+                        <option value="html">HTML</option>
+                        <option value="css">CSS</option>
+                        <option value="markdown">Markdown</option>
+                        <option value="sql">SQL</option>
+                      </select>
+                    </label>
+                    <button id="copyCodeButton" class="toolbar-button" type="button" title="Copy the current digest content">
+                      Copy content
+                    </button>
+                    <button id="formatCodeButton" class="toolbar-button" type="button" title="Format supported languages with Prettier">
+                      Format
+                    </button>
+                    <button id="highlightCodeButton" class="toolbar-button" type="button" title="Render a syntax-highlighted preview">
+                      Highlight
+                    </button>
+                    <button id="clearCodeButton" class="toolbar-button" type="button" title="Clear the current editor contents">
+                      Clear
+                    </button>
+                  </div>
+                  <p class="text-sm leading-6 text-slate-600">
+                    Deeper actions like export live in
+                    <button class="font-medium text-sky-700 underline decoration-sky-200 underline-offset-4" data-modal-open="workspaceModal" data-segment-group="knowledge" data-segment-target="exports" type="button">
+                      Workspace
+                    </button>.
+                  </p>
+                </div>
               </div>
             </div>
 
-            <div
-              class="segment-panel"
-              data-segment-group="knowledge"
-              data-segment-panel="prompt"
-            >
-              <div class="inline-action-row">
-                <p class="mini-heading">Operational prompt kit</p>
-                <button id="copyPromptKitButton" class="secondary-button" type="button">
-                  Copy
+            <div class="mt-5 inline-flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1" role="tablist" aria-label="Editor mode">
+              <button
+                class="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-slate-900 shadow-sm"
+                data-segment-group="editor"
+                data-segment-target="write"
+                type="button"
+              >
+                Editor
+              </button>
+              <button
+                class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 transition hover:text-slate-900"
+                data-segment-group="editor"
+                data-segment-target="preview"
+                type="button"
+              >
+                Preview
+              </button>
+            </div>
+
+            <div class="mt-5" data-segment-group="editor" data-segment-panel="write">
+              <label class="block">
+                <span class="section-label">Digest content</span>
+                <textarea
+                  id="codeInput"
+                  class="mt-3 min-h-[420px] w-full resize-y rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#fbfdff_100%)] p-4 font-['IBM_Plex_Mono',monospace] text-[13px] leading-7 text-slate-800 outline-none placeholder:text-slate-400 focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
+                  spellcheck="false"
+                  placeholder="Paste code or imported content..."
+                ></textarea>
+              </label>
+            </div>
+
+            <div class="mt-5 hidden" data-segment-group="editor" data-segment-panel="preview">
+              <div class="mb-3 flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2">
+                  <p id="codePreviewLabel" class="section-label">Content preview</p>
+                  <span id="previewStateChip" class="chip">No preview yet</span>
+                </div>
+                <button id="copyPreviewButton" class="toolbar-button" type="button">
+                  Copy preview
                 </button>
               </div>
-              <pre id="promptKitPreview" class="markdown-preview">Loading prompt kit…</pre>
+              <div id="previewRefreshNotice" class="mb-3 hidden rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm leading-6 text-sky-700">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p id="previewRefreshText">Preview is out of date. Refresh it to inspect the current content.</p>
+                  <button id="refreshPreviewButton" class="toolbar-button" type="button">
+                    Refresh preview
+                  </button>
+                </div>
+              </div>
+              <pre id="codePreview" class="code-surface min-h-[420px]"><code id="codePreviewContent" class="hljs">Run highlight to preview the current content.</code></pre>
             </div>
 
-            <div
-              class="segment-panel"
-              data-segment-group="knowledge"
-              data-segment-panel="memory"
-            >
-              <p class="mini-heading">Living style memory</p>
-              <pre id="memoryPreview" class="markdown-preview">Loading memory…</pre>
+            <div class="mt-5 flex flex-col gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:items-center sm:justify-between">
+              <div class="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center">
+                <div id="statusBanner" class="status-banner border-slate-200 bg-slate-50 text-slate-600">
+                  <p id="statusText" class="font-['IBM_Plex_Mono',monospace] text-xs leading-6">Ready.</p>
+                </div>
+                <button id="undoClearButton" class="subtle-button hidden px-3 py-1.5 text-xs" type="button">
+                  Undo clear
+                </button>
+              </div>
+              <button id="digestButton" class="primary-button" type="button">
+                Digest source
+              </button>
             </div>
           </article>
+
+          <aside class="panel p-5 sm:p-6">
+            <div class="flex items-start gap-3 border-b border-slate-200 pb-4">
+              <span class="icon-badge">
+                <svg class="icon-lg" aria-hidden="true"><use href="#icon-user"></use></svg>
+              </span>
+              <div>
+                <p class="kicker"><svg class="icon-sm text-slate-500" aria-hidden="true"><use href="#icon-user"></use></svg><span class="section-label">session/summary</span></p>
+                <h2 class="mt-1 text-lg font-semibold tracking-[-0.03em] text-slate-900">Ready state</h2>
+                <p id="quickProfileSummary" class="mt-3 text-sm leading-7 text-slate-600">
+                  Create a profile to add product and design context on top of the learned code signals.
+                </p>
+              </div>
+            </div>
+
+            <div class="mt-5 space-y-4">
+              <section class="ghost-card">
+                <div class="flex items-center justify-between gap-3">
+                  <p class="kicker"><svg class="icon-sm text-slate-500" aria-hidden="true"><use href="#icon-user"></use></svg><span class="section-label">profile</span></p>
+                  <button
+                    id="manageProfileButton"
+                    class="subtle-button px-3 py-1.5 text-xs"
+                    data-modal-open="profileModal"
+                    type="button"
+                    title="Create or edit your profile"
+                  >
+                    Manage
+                  </button>
+                </div>
+                <p id="quickProfileIdentity" class="mt-3 text-sm font-semibold text-slate-900">Profile not configured</p>
+                <ul id="quickProfileMeta" class="mt-3 space-y-2 text-sm leading-6 text-slate-600"></ul>
+              </section>
+
+              <section class="ghost-card">
+                <div class="flex items-center justify-between gap-3">
+                  <p class="kicker"><svg class="icon-sm text-slate-500" aria-hidden="true"><use href="#icon-sparkles"></use></svg><span class="section-label">learned signals</span></p>
+                  <button
+                    class="subtle-button px-3 py-1.5 text-xs"
+                    data-modal-open="workspaceModal"
+                    type="button"
+                  >
+                    Workspace
+                  </button>
+                </div>
+                <div id="quickLanguageChips" class="mt-3 flex flex-wrap gap-2"></div>
+                <div id="quickTagChips" class="mt-3 flex flex-wrap gap-2"></div>
+                <div class="mt-4 flex flex-wrap gap-2">
+                  <button id="copyLatestDigestButton" class="subtle-button px-3 py-1.5 text-xs" type="button">
+                    Copy latest digest
+                  </button>
+                </div>
+              </section>
+            </div>
+          </aside>
         </div>
 
-        <section id="resultsSection" class="results hidden" aria-live="polite">
-          <article class="panel result-hero">
-            <p class="panel-kicker">Latest digest</p>
-            <h2 id="languageLabel">Language</h2>
-            <p id="summaryText" class="result-summary"></p>
-            <div id="tagList" class="chip-row"></div>
+        <section id="resultsSection" class="mt-6 hidden space-y-5" aria-live="polite">
+          <article class="panel p-5 sm:p-6">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div class="flex items-start gap-3">
+                <span class="icon-badge">
+                  <svg class="icon-lg" aria-hidden="true"><use href="#icon-file"></use></svg>
+                </span>
+                <div>
+                  <p class="kicker"><svg class="icon-sm text-slate-500" aria-hidden="true"><use href="#icon-file"></use></svg><span class="section-label">latest.digest</span></p>
+                  <h2 id="languageLabel" class="mt-1 text-2xl font-semibold tracking-[-0.03em] text-slate-900" tabindex="-1">
+                    No digest yet
+                  </h2>
+                  <p id="summaryText" class="mt-3 text-sm leading-7 text-slate-600">
+                    Run a digest to see the latest summary here.
+                  </p>
+                </div>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button id="copyDigestButton" class="subtle-button" type="button">
+                  Copy digest
+                </button>
+              </div>
+            </div>
+            <div id="tagList" class="mt-4 flex flex-wrap gap-2"></div>
           </article>
 
-          <article class="panel result-detail-panel">
-            <div class="segment-tabs">
+          <article class="panel p-5 sm:p-6">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div class="flex max-w-3xl items-start gap-3">
+                <span class="icon-badge-accent">
+                  <svg class="icon-lg" aria-hidden="true"><use href="#icon-route"></use></svg>
+                </span>
+                <div>
+                  <p class="kicker"><svg class="icon-sm text-sky-700" aria-hidden="true"><use href="#icon-route"></use></svg><span class="section-label">Use this next</span></p>
+                  <p id="nextActionSummary" class="mt-2 text-base font-semibold text-slate-900">
+                    Run a digest to get a clear next move.
+                  </p>
+                  <p id="nextActionDetail" class="mt-2 text-sm leading-7 text-slate-600">
+                    The digest will turn the strongest directive, pattern, and risk into a concrete recommendation.
+                  </p>
+                </div>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button id="useLatestInStudioButton" class="subtle-button" type="button">
+                  Use in Studio
+                </button>
+                <button id="openLatestInLibraryButton" class="subtle-button" type="button">
+                  Open in Library
+                </button>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel p-5 sm:p-6">
+            <div class="inline-flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1" role="tablist" aria-label="Digest result sections">
               <button
-                class="segment-tab is-active"
+                class="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-slate-900 shadow-sm"
                 data-segment-group="results"
                 data-segment-target="signals"
                 type="button"
@@ -182,7 +606,7 @@
                 Signals
               </button>
               <button
-                class="segment-tab"
+                class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 transition hover:text-slate-900"
                 data-segment-group="results"
                 data-segment-target="guidance"
                 type="button"
@@ -190,7 +614,7 @@
                 Guidance
               </button>
               <button
-                class="segment-tab"
+                class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 transition hover:text-slate-900"
                 data-segment-group="results"
                 data-segment-target="artifacts"
                 type="button"
@@ -199,59 +623,60 @@
               </button>
             </div>
 
-            <div
-              class="segment-panel is-active"
-              data-segment-group="results"
-              data-segment-panel="signals"
-            >
-              <div class="insight-grid two-up">
-                <div>
-                  <p class="mini-heading">Style signals</p>
-                  <ul id="styleList" class="bullet-list"></ul>
+            <div class="mt-5" data-segment-group="results" data-segment-panel="signals">
+              <div class="grid gap-4 lg:grid-cols-2">
+                <div class="ghost-card">
+                  <p class="section-label">style</p>
+                  <ul id="styleList" class="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-800"></ul>
                 </div>
-                <div>
-                  <p class="mini-heading">Taste read</p>
-                  <ul id="preferencesList" class="bullet-list"></ul>
+                <div class="ghost-card">
+                  <p class="section-label">taste</p>
+                  <ul id="preferencesList" class="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-800"></ul>
                 </div>
               </div>
             </div>
 
-            <div
-              class="segment-panel"
-              data-segment-group="results"
-              data-segment-panel="guidance"
-            >
-              <div class="insight-grid three-up">
-                <div>
-                  <p class="mini-heading">Build directives</p>
-                  <ul id="directivesList" class="bullet-list compact-list"></ul>
+            <div class="mt-5 hidden" data-segment-group="results" data-segment-panel="guidance">
+              <div class="grid gap-4 xl:grid-cols-3">
+                <div class="ghost-card">
+                  <p class="section-label">directives</p>
+                  <ul id="directivesList" class="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-800"></ul>
                 </div>
-                <div>
-                  <p class="mini-heading">Reusable patterns</p>
-                  <ul id="patternsList" class="bullet-list compact-list"></ul>
+                <div class="ghost-card">
+                  <p class="section-label">patterns</p>
+                  <ul id="patternsList" class="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-800"></ul>
                 </div>
-                <div>
-                  <p class="mini-heading">Avoid</p>
-                  <ul id="avoidList" class="bullet-list compact-list"></ul>
+                <div class="ghost-card">
+                  <p class="section-label">avoid</p>
+                  <ul id="avoidList" class="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-800"></ul>
                 </div>
               </div>
             </div>
 
-            <div
-              class="segment-panel"
-              data-segment-group="results"
-              data-segment-panel="artifacts"
-            >
-              <div id="filePaths" class="chip-row"></div>
-
-              <div class="artifact-grid">
-                <div>
-                  <p class="mini-heading">Updated taste memory</p>
-                  <pre id="memoryOutput" class="markdown-preview"></pre>
+            <div class="mt-5 hidden" data-segment-group="results" data-segment-panel="artifacts">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <p class="text-sm leading-7 text-slate-600">Copies of the latest digest and memory are kept here. Raw file paths stay behind a small disclosure.</p>
+                <button id="toggleFilePathsButton" class="subtle-button px-3 py-1.5 text-xs" type="button" aria-expanded="false" aria-controls="filePathsPanel">
+                  Show file paths
+                </button>
+              </div>
+              <div id="filePathsPanel" class="mt-4 hidden">
+                <div id="filePaths" class="flex flex-wrap gap-2"></div>
+              </div>
+              <div class="mt-4 grid gap-4 xl:grid-cols-2">
+                <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                  <div class="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+                    <span class="section-label text-slate-800">memory.md</span>
+                    <button id="copyMemoryButton" class="subtle-button px-3 py-1.5 text-xs" type="button">Copy</button>
+                  </div>
+                  <pre id="memoryOutput" class="code-surface min-h-[220px] rounded-none border-0"></pre>
                 </div>
-                <div>
-                  <p class="mini-heading">Latest digest markdown</p>
-                  <pre id="digestOutput" class="markdown-preview"></pre>
+                <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                  <div class="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+                    <span class="section-label text-slate-800">digest.md</span>
+                    <button id="copyDigestArtifactButton" class="subtle-button px-3 py-1.5 text-xs" type="button">Copy</button>
+                  </div>
+                  <pre id="digestOutput" class="code-surface min-h-[220px] rounded-none border-0"></pre>
                 </div>
               </div>
             </div>
@@ -259,157 +684,777 @@
         </section>
       </section>
 
-      <section class="view" data-view="library">
-        <div class="layout-two library-layout">
-          <article class="panel library-panel">
-            <div class="panel-head">
+      <section class="mt-6 hidden" data-view="library">
+        <div class="grid items-start gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+          <article class="panel p-5 sm:p-6">
+            <div class="flex items-start gap-3 border-b border-slate-200 pb-4">
+              <span class="icon-badge-accent">
+                <svg class="icon-lg" aria-hidden="true"><use href="#icon-folder"></use></svg>
+              </span>
               <div>
-                <p class="panel-kicker">Snippet archive</p>
-                <h2>Search the learned library</h2>
+                <p class="kicker"><svg class="icon-sm text-sky-700" aria-hidden="true"><use href="#icon-folder"></use></svg><span class="section-label">library/index</span></p>
+                <h2 class="mt-1 text-lg font-semibold tracking-[-0.03em] text-slate-900">Library</h2>
+                <p class="mt-2 text-sm leading-7 text-slate-600">
+                  Search saved sources, then compare the selected detail without leaving the page.
+                </p>
               </div>
             </div>
 
-            <label class="field">
-              <span class="field-label">Search</span>
+            <label class="mt-5 block">
+              <span class="sr-only">Search library</span>
               <input
                 id="librarySearchInput"
+                class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
                 type="search"
-                placeholder="Search by title, tag, language, source, note, or preference signal."
+                placeholder="Search title, tag, language, or note..."
               />
             </label>
-
-            <ul id="libraryList" class="library-list"></ul>
+            <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p id="librarySearchCount" class="font-['IBM_Plex_Mono',monospace] text-[11px] text-slate-500">0 items</p>
+                <button id="clearLibraryFiltersButton" class="subtle-button px-3 py-1.5 text-xs" type="button" disabled>
+                  Reset filters
+                </button>
+              </div>
+              <p id="libraryFilterSummary" class="mt-3 text-sm leading-6 text-slate-600">
+                Filter by mode, recency, language, or tag once you have enough saved sources to compare.
+              </p>
+              <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                <label class="block">
+                  <span class="section-label">Mode</span>
+                  <select
+                    id="libraryModeSelect"
+                    class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
+                  >
+                    <option value="all">All</option>
+                    <option value="ai">AI</option>
+                    <option value="heuristic">Heuristic</option>
+                  </select>
+                </label>
+                <label class="block">
+                  <span class="section-label">Recency</span>
+                  <select
+                    id="libraryRecencySelect"
+                    class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
+                  >
+                    <option value="all">Any time</option>
+                    <option value="7">Last 7 days</option>
+                    <option value="30">Last 30 days</option>
+                    <option value="90">Last 90 days</option>
+                  </select>
+                </label>
+                <label class="block">
+                  <span class="section-label">Language</span>
+                  <select
+                    id="libraryLanguageSelect"
+                    class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
+                  >
+                    <option value="all">All languages</option>
+                  </select>
+                </label>
+                <label class="block">
+                  <span class="section-label">Tag</span>
+                  <select
+                    id="libraryTagSelect"
+                    class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
+                  >
+                    <option value="all">All tags</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <ul id="libraryList" class="mt-5 grid gap-3"></ul>
           </article>
 
-          <article class="panel detail-panel">
-            <div id="libraryEmptyState" class="empty-state">
-              Select a snippet to inspect its code, digest, and learned signals.
+          <article class="panel p-5 sm:p-6">
+            <div class="flex flex-col gap-4 border-b border-slate-200 pb-4 sm:flex-row sm:items-start sm:justify-between">
+              <div class="flex items-start gap-3">
+                <span class="icon-badge">
+                  <svg class="icon-lg" aria-hidden="true"><use href="#icon-search"></use></svg>
+                </span>
+                <div>
+                  <p class="kicker"><svg class="icon-sm text-slate-500" aria-hidden="true"><use href="#icon-search"></use></svg><span class="section-label">Selection</span></p>
+                  <h2 id="detailTitle" class="mt-1 text-lg font-semibold tracking-[-0.03em] text-slate-900">Select a saved source</h2>
+                  <p id="detailMeta" class="mt-2 text-xs leading-6 text-slate-500"></p>
+                </div>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button id="libraryPrevButton" class="subtle-button" type="button">
+                  Previous
+                </button>
+                <button id="libraryNextButton" class="subtle-button" type="button">
+                  Next
+                </button>
+                <button id="copySelectedCodeButton" class="subtle-button" type="button">
+                  Copy content
+                </button>
+                <button id="copySelectedDigestButton" class="subtle-button" type="button">
+                  Copy digest
+                </button>
+              </div>
+            </div>
+
+            <div
+              id="libraryEmptyState"
+              class="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm leading-7 text-slate-600"
+            >
+              <p id="libraryEmptyText">Select a saved source to inspect its content, digest, and learned signals.</p>
+              <div class="mt-4 flex flex-wrap gap-2">
+                <button id="libraryEmptyDigestButton" class="subtle-button px-3 py-1.5 text-xs" type="button">
+                  Go to Digest
+                </button>
+              </div>
             </div>
 
             <div id="libraryDetail" class="hidden">
-              <p class="panel-kicker">Snippet detail</p>
-              <h2 id="detailTitle">Snippet</h2>
-              <p id="detailMeta" class="detail-meta"></p>
-              <p id="detailReason" class="detail-copy"></p>
-              <p id="detailNotes" class="detail-copy"></p>
-              <div id="detailTags" class="chip-row"></div>
-              <p id="detailSummary" class="result-summary"></p>
+              <p id="detailReason" class="mt-5 text-sm leading-7 text-slate-600"></p>
+              <p id="detailNotes" class="mt-2 text-sm leading-7 text-slate-600"></p>
+              <div id="detailTags" class="mt-4 flex flex-wrap gap-2"></div>
+              <p id="detailSummary" class="mt-4 text-sm leading-7 text-slate-600"></p>
+              <div class="mt-4 flex flex-wrap gap-2">
+                <button id="sendSelectionToDigestButton" class="subtle-button px-3 py-1.5 text-xs" type="button">
+                  Send to Digest
+                </button>
+                <button id="useSelectionInStudioButton" class="subtle-button px-3 py-1.5 text-xs" type="button">
+                  Use in Studio
+                </button>
+              </div>
 
-              <div class="detail-lists">
-                <div>
-                  <p class="mini-heading">Directives</p>
-                  <ul id="detailDirectives" class="bullet-list compact-list"></ul>
-                </div>
-                <div>
-                  <p class="mini-heading">Patterns</p>
-                  <ul id="detailPatterns" class="bullet-list compact-list"></ul>
-                </div>
-                <div>
-                  <p class="mini-heading">Avoid</p>
-                  <ul id="detailAvoid" class="bullet-list compact-list"></ul>
+              <div class="mt-5 inline-flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1" role="tablist" aria-label="Library detail sections">
+                <button
+                  class="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-slate-900 shadow-sm"
+                  data-segment-group="snippet"
+                  data-segment-target="overview"
+                  type="button"
+                >
+                  Overview
+                </button>
+                <button
+                  class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 transition hover:text-slate-900"
+                  data-segment-group="snippet"
+                  data-segment-target="code"
+                  type="button"
+                >
+                  Content
+                </button>
+                <button
+                  class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 transition hover:text-slate-900"
+                  data-segment-group="snippet"
+                  data-segment-target="digest"
+                  type="button"
+                >
+                  Digest
+                </button>
+              </div>
+
+              <div class="mt-5" data-segment-group="snippet" data-segment-panel="overview">
+                <div class="grid gap-4 xl:grid-cols-3">
+                  <div class="ghost-card">
+                    <p class="section-label">directives</p>
+                    <ul id="detailDirectives" class="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-800"></ul>
+                  </div>
+                  <div class="ghost-card">
+                    <p class="section-label">patterns</p>
+                    <ul id="detailPatterns" class="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-800"></ul>
+                  </div>
+                  <div class="ghost-card">
+                    <p class="section-label">avoid</p>
+                    <ul id="detailAvoid" class="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-800"></ul>
+                  </div>
                 </div>
               </div>
 
-              <div class="detail-columns">
-                <div>
-                  <p class="mini-heading">Code</p>
-                  <pre id="detailCode" class="code-preview"></pre>
-                </div>
-                <div>
-                  <p class="mini-heading">Digest markdown</p>
-                  <pre id="detailDigest" class="markdown-preview detail-markdown"></pre>
-                </div>
+              <div class="mt-5 hidden" data-segment-group="snippet" data-segment-panel="code">
+                <pre class="code-surface min-h-[420px]"><code id="detailCode" class="hljs"></code></pre>
+              </div>
+
+              <div class="mt-5 hidden" data-segment-group="snippet" data-segment-panel="digest">
+                <pre id="detailDigest" class="code-surface min-h-[420px]"></pre>
               </div>
             </div>
           </article>
         </div>
       </section>
 
-      <section class="view" data-view="studio">
-        <div class="layout-two studio-layout">
-          <article class="panel composer-panel">
-            <div class="panel-head">
-              <div>
-                <p class="panel-kicker">Taste-aligned generator</p>
-                <h2>Shape a future product from what the tool has learned</h2>
+      <section class="mt-6 hidden" data-view="studio">
+        <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1.06fr)_360px]">
+          <article class="panel p-5 sm:p-6">
+            <div class="flex flex-col gap-4 border-b border-slate-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
+              <div class="flex items-start gap-3">
+                <span class="icon-badge-accent">
+                  <svg class="icon-lg" aria-hidden="true"><use href="#icon-compass"></use></svg>
+                </span>
+                <div>
+                  <p class="kicker"><svg class="icon-sm text-sky-700" aria-hidden="true"><use href="#icon-compass"></use></svg><span class="section-label">Product brief</span></p>
+                  <h2 class="mt-1 text-lg font-semibold tracking-[-0.03em] text-slate-900">Studio</h2>
+                  <p class="mt-2 text-sm leading-7 text-slate-600">
+                    Draft a product direction using your profile, prompt kit, and learned taste signals.
+                  </p>
+                </div>
               </div>
-              <button id="generateButton" class="action-button" type="button">
-                Shape Product
-              </button>
+
+              <div class="flex flex-wrap gap-2">
+                <button id="generateButton" class="primary-button" type="button">
+                  Shape product
+                </button>
+              </div>
             </div>
 
-            <label class="field">
-              <span class="field-label">Product idea</span>
+            <section id="studioContextCard" class="ghost-card mt-5">
+              <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div class="max-w-3xl">
+                  <p class="kicker"><svg class="icon-sm text-slate-500" aria-hidden="true"><use href="#icon-link"></use></svg><span class="section-label">Using context</span></p>
+                  <p id="studioContextIdentity" class="mt-2 text-sm font-semibold text-slate-900">
+                    No library or digest context selected yet.
+                  </p>
+                  <p id="studioContextSummary" class="mt-2 text-sm leading-7 text-slate-600">
+                    Studio already uses your profile, prompt kit, and learned memory. Add a digest or library selection when you want the blueprint to inherit a specific example.
+                  </p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <button id="useLatestDigestContextButton" class="subtle-button hidden px-3 py-1.5 text-xs" type="button">
+                    Use latest digest
+                  </button>
+                  <button id="clearStudioContextButton" class="subtle-button hidden px-3 py-1.5 text-xs" type="button">
+                    Clear context
+                  </button>
+                </div>
+              </div>
+              <div id="studioContextSignals" class="mt-4 flex flex-wrap gap-2"></div>
+            </section>
+
+            <div class="mt-5">
+              <p class="kicker"><svg class="icon-sm text-slate-500" aria-hidden="true"><use href="#icon-bolt"></use></svg><span class="section-label">Start faster</span></p>
+              <select
+                id="ideaPresetSelect"
+                class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
+              >
+                <option value="">Choose an idea starter</option>
+                <option value="A code review workspace that turns saved sources into actionable engineering guidance.">Review workspace</option>
+                <option value="A developer-facing internal tool that turns repetitive technical workflows into one clean dashboard.">Internal tool</option>
+                <option value="A productized developer workflow that feels fast, minimal, and useful from the first session.">Dev workflow</option>
+              </select>
+            </div>
+
+            <label class="mt-5 block">
+              <span class="section-label">Product idea</span>
               <textarea
                 id="ideaInput"
-                class="compact-input"
-                placeholder="Example: a bug triage tool for small teams, a visual query builder, a deployment dashboard, a structured writing app."
+                class="mt-3 min-h-[128px] w-full resize-y rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-7 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
+                placeholder="Describe the product idea..."
               ></textarea>
             </label>
 
-            <label class="field">
-              <span class="field-label">Constraints</span>
+            <div class="mt-4">
+              <p class="kicker"><svg class="icon-sm text-slate-500" aria-hidden="true"><use href="#icon-sliders"></use></svg><span class="section-label">Constraint presets</span></p>
+              <select
+                id="constraintPresetSelect"
+                class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
+              >
+                <option value="">Add a constraint preset</option>
+                <option value="Ship as a focused MVP in two weeks.">2-week MVP</option>
+                <option value="Optimize for a solo builder with limited maintenance overhead.">Solo builder</option>
+                <option value="Keep the experience mobile-friendly from the start.">Mobile-friendly</option>
+                <option value="Use TypeScript across the app where practical.">TypeScript-first</option>
+              </select>
+            </div>
+
+            <label class="mt-4 block">
+              <span class="section-label">Constraints</span>
               <textarea
                 id="constraintsInput"
-                class="compact-input"
-                placeholder="Optional. Example: single developer, TypeScript only, no external database, responsive UI, must ship in 3 days."
+                class="mt-3 min-h-[112px] w-full resize-y rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-7 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
+                placeholder="Add constraints if needed..."
               ></textarea>
             </label>
 
-            <p id="studioStatus" class="status idle">
-              The generator will use your learned taste profile, prompt kit, and saved code.
-            </p>
+            <div id="studioStatusBanner" class="status-banner mt-5 border-slate-200 bg-slate-50 text-slate-600">
+              <p id="studioStatus" class="font-['IBM_Plex_Mono',monospace] text-xs leading-6">Ready.</p>
+            </div>
           </article>
 
-          <article class="panel sidebar-panel">
-            <p class="panel-kicker">Blueprint</p>
-            <h2 id="blueprintTitle">No blueprint yet</h2>
-            <p id="blueprintThesis" class="result-summary">
-              Describe a product idea and the app will shape it using the learned developer profile.
-            </p>
+          <article class="panel p-5 sm:p-6">
+            <div class="flex items-start justify-between gap-3">
+              <div class="flex items-start gap-3">
+                <span class="icon-badge">
+                  <svg class="icon-lg" aria-hidden="true"><use href="#icon-file"></use></svg>
+                </span>
+                <div>
+                  <p class="kicker"><svg class="icon-sm text-slate-500" aria-hidden="true"><use href="#icon-file"></use></svg><span class="section-label">blueprint.md</span></p>
+                  <h2 id="blueprintTitle" class="mt-1 text-xl font-semibold tracking-[-0.03em] text-slate-900">No blueprint yet</h2>
+                </div>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button id="copyBlueprintButton" class="subtle-button" type="button">
+                  Copy blueprint
+                </button>
+                <button id="exportBlueprintButton" class="subtle-button" type="button">
+                  Export blueprint
+                </button>
+                <button id="copyStarterPromptButton" class="subtle-button" type="button">
+                  Copy prompt
+                </button>
+                <button
+                  class="subtle-button"
+                  data-modal-open="promptModal"
+                  type="button"
+                >
+                  Prompt
+                </button>
+              </div>
+            </div>
 
-            <div id="blueprintStack" class="chip-row"></div>
+            <div id="blueprintEmptyState" class="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4">
+              <p class="text-sm font-semibold text-slate-900">No blueprint yet</p>
+              <p class="mt-2 text-sm leading-7 text-slate-600">When you shape a product, this panel will show:</p>
+              <ul class="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-700">
+                <li>A short thesis and recommended stack.</li>
+                <li>Taste-aligned product and UX principles.</li>
+                <li>Build order, feature slices, and guardrails.</li>
+              </ul>
+            </div>
 
-            <div class="blueprint-grid">
-              <div>
-                <p class="mini-heading">Taste alignment</p>
-                <ul id="blueprintTaste" class="bullet-list compact-list"></ul>
+            <div id="blueprintContent" class="hidden">
+              <p id="blueprintThesis" class="mt-3 text-sm leading-7 text-slate-600"></p>
+              <div id="blueprintStack" class="mt-4 flex flex-wrap gap-2"></div>
+              <div id="studioRefinementPanel" class="mt-5 hidden">
+                <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div class="max-w-3xl">
+                      <p class="kicker"><svg class="icon-sm text-slate-500" aria-hidden="true"><use href="#icon-sliders"></use></svg><span class="section-label">Refine blueprint</span></p>
+                      <p class="mt-2 text-sm leading-7 text-slate-600">
+                        Pick a refinement direction or write a specific change request, then apply it without rewriting the full brief.
+                      </p>
+                    </div>
+                    <p id="refinementSummary" class="text-sm leading-6 text-slate-600">
+                      No refinement applied yet.
+                    </p>
+                  </div>
+                  <div class="mt-4 grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+                    <label class="block">
+                      <span class="section-label">Refinement goal</span>
+                      <select
+                        id="refinementPresetSelect"
+                        class="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
+                      >
+                        <option value="">Choose a refinement</option>
+                        <option value="Make the plan more technical and implementation-oriented.">More technical</option>
+                        <option value="Make the product feel more minimal and focused.">More minimal</option>
+                        <option value="Shrink the first release into a smaller MVP.">Smaller MVP</option>
+                        <option value="Strengthen the UX and interaction guidance.">Stronger UX</option>
+                      </select>
+                    </label>
+                    <label class="block">
+                      <span class="section-label">Specific change request</span>
+                      <textarea
+                        id="refinementNotesInput"
+                        class="mt-2 min-h-[96px] w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-7 text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10"
+                        placeholder="What should change in the next version?"
+                      ></textarea>
+                    </label>
+                  </div>
+                  <div class="mt-4 flex flex-wrap gap-2">
+                    <p id="refinementHint" class="min-w-0 flex-1 text-sm leading-6 text-slate-600">
+                      Choose a goal or describe a specific change. Press Cmd/Ctrl + Enter to apply it.
+                    </p>
+                    <button id="applyRefinementButton" class="subtle-button" type="button" disabled>
+                      Apply refinement
+                    </button>
+                    <button id="clearRefinementButton" class="subtle-button" type="button" disabled>
+                      Reset refinement
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div>
-                <p class="mini-heading">Experience principles</p>
-                <ul id="blueprintExperience" class="bullet-list compact-list"></ul>
+
+              <div class="mt-5 inline-flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1" role="tablist" aria-label="Blueprint sections">
+                <button
+                  class="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-slate-900 shadow-sm"
+                  data-segment-group="blueprint"
+                  data-segment-target="summary"
+                  type="button"
+                >
+                  Summary
+                </button>
+                <button
+                  class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 transition hover:text-slate-900"
+                  data-segment-group="blueprint"
+                  data-segment-target="build"
+                  type="button"
+                >
+                  Build
+                </button>
+                <button
+                  class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 transition hover:text-slate-900"
+                  data-segment-group="blueprint"
+                  data-segment-target="guardrails"
+                  type="button"
+                >
+                  Guardrails
+                </button>
               </div>
-              <div>
-                <p class="mini-heading">Architecture</p>
-                <ul id="blueprintArchitecture" class="bullet-list compact-list"></ul>
+
+              <div class="mt-5" data-segment-group="blueprint" data-segment-panel="summary">
+                <div class="grid gap-4">
+                  <div class="ghost-card">
+                    <p class="section-label">taste alignment</p>
+                    <ul id="blueprintTaste" class="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-800"></ul>
+                  </div>
+                  <div class="ghost-card">
+                    <p class="section-label">experience</p>
+                    <ul id="blueprintExperience" class="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-800"></ul>
+                  </div>
+                </div>
               </div>
-              <div>
-                <p class="mini-heading">Initial features</p>
-                <ul id="blueprintFeatures" class="bullet-list compact-list"></ul>
+
+              <div class="mt-5 hidden" data-segment-group="blueprint" data-segment-panel="build">
+                <div class="grid gap-4">
+                  <div class="ghost-card">
+                    <p class="section-label">architecture</p>
+                    <ul id="blueprintArchitecture" class="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-800"></ul>
+                  </div>
+                  <div class="ghost-card">
+                    <p class="section-label">features</p>
+                    <ul id="blueprintFeatures" class="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-800"></ul>
+                  </div>
+                  <div class="ghost-card">
+                    <p class="section-label">build order</p>
+                    <ul id="blueprintBuildOrder" class="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-800"></ul>
+                  </div>
+                </div>
               </div>
-              <div>
-                <p class="mini-heading">Build order</p>
-                <ul id="blueprintBuildOrder" class="bullet-list compact-list"></ul>
-              </div>
-              <div>
-                <p class="mini-heading">Guardrails</p>
-                <ul id="blueprintGuardrails" class="bullet-list compact-list"></ul>
+
+              <div class="mt-5 hidden" data-segment-group="blueprint" data-segment-panel="guardrails">
+                <div class="ghost-card">
+                  <p class="section-label">guardrails</p>
+                  <ul id="blueprintGuardrails" class="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-800"></ul>
+                </div>
               </div>
             </div>
           </article>
         </div>
-
-        <article class="panel memory-output studio-output">
-          <div class="memory-output-head">
-            <div>
-              <p class="panel-kicker">Starter prompt</p>
-              <h2>Prompt grounded in your learned profile</h2>
-            </div>
-          </div>
-          <pre id="starterPromptOutput" class="markdown-preview"></pre>
-        </article>
       </section>
     </main>
+
+    <div
+      id="workspaceModal"
+      data-modal-root
+      aria-hidden="true"
+      class="fixed inset-0 z-40 hidden bg-slate-950/45 backdrop-blur-sm"
+    >
+      <div
+        class="ml-auto flex h-full w-full max-w-[780px] flex-col border-l border-slate-200 bg-white shadow-[-20px_0_60px_rgba(15,23,42,0.12)]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="workspaceModalTitle"
+      >
+        <div class="flex items-center justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-6">
+          <div>
+            <p class="section-label text-sky-700">workspace/</p>
+            <h3 id="workspaceModalTitle" class="mt-1 text-lg font-semibold text-slate-900">Knowledge</h3>
+          </div>
+          <button
+            class="subtle-button h-10 w-10 px-0"
+            data-modal-close
+            type="button"
+            aria-label="Close workspace"
+          >
+            ×
+          </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+          <div class="inline-flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
+            <button
+              class="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-slate-900 shadow-sm"
+              data-segment-group="knowledge"
+              data-segment-target="profile"
+              type="button"
+            >
+              Profile
+            </button>
+            <button
+              class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 transition hover:text-slate-900"
+              data-segment-group="knowledge"
+              data-segment-target="prompt"
+              type="button"
+            >
+              Prompt kit
+            </button>
+            <button
+              class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 transition hover:text-slate-900"
+              data-segment-group="knowledge"
+              data-segment-target="memory"
+              type="button"
+            >
+              Memory
+            </button>
+            <button
+              class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 transition hover:text-slate-900"
+              data-segment-group="knowledge"
+              data-segment-target="recent"
+              type="button"
+            >
+              Recent
+            </button>
+            <button
+              class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 transition hover:text-slate-900"
+              data-segment-group="knowledge"
+              data-segment-target="exports"
+              type="button"
+            >
+              Exports
+            </button>
+          </div>
+
+          <div class="mt-5" data-segment-group="knowledge" data-segment-panel="profile">
+            <section class="ghost-card">
+              <p class="section-label">manual profile</p>
+              <p id="profileIdentity" class="mt-2 text-lg font-semibold text-slate-900">Profile not configured</p>
+              <p id="profileHeadline" class="mt-2 text-sm leading-7 text-slate-600">Use the profile editor to add product and design context.</p>
+              <ul id="profileManualList" class="mt-4 space-y-2 text-sm leading-7 text-slate-600"></ul>
+            </section>
+
+            <p id="profileSummary" class="mt-5 text-sm leading-7 text-slate-600">Loading profile…</p>
+
+            <div class="mt-5">
+              <p class="section-label">Top languages</p>
+              <div id="topLanguages" class="mt-3 flex flex-wrap gap-2"></div>
+            </div>
+
+            <div class="mt-5">
+              <p class="section-label">Top tags</p>
+              <div id="topTags" class="mt-3 flex flex-wrap gap-2"></div>
+            </div>
+
+            <div class="mt-5">
+              <p class="section-label">Directives</p>
+              <ul id="topDirectives" class="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-800"></ul>
+            </div>
+          </div>
+
+          <div class="mt-5 hidden" data-segment-group="knowledge" data-segment-panel="prompt">
+            <div class="mb-4 flex items-center justify-between gap-3">
+              <p class="section-label">prompt-kit.md</p>
+              <button id="copyPromptKitButton" class="subtle-button" type="button">Copy</button>
+            </div>
+            <pre id="promptKitPreview" class="code-surface min-h-[320px]">Loading prompt kit…</pre>
+          </div>
+
+          <div class="mt-5 hidden" data-segment-group="knowledge" data-segment-panel="memory">
+            <div class="mb-4 flex items-center justify-between gap-3">
+              <p class="section-label">memory.md</p>
+              <button id="copyWorkspaceMemoryButton" class="subtle-button" type="button">Copy</button>
+            </div>
+            <pre id="memoryPreview" class="code-surface min-h-[320px]">Loading memory…</pre>
+          </div>
+
+          <div class="mt-5 hidden" data-segment-group="knowledge" data-segment-panel="recent">
+            <p class="section-label">recent digests</p>
+            <ul id="recentDigests" class="mt-4 grid gap-3"></ul>
+          </div>
+
+          <div class="mt-5 hidden" data-segment-group="knowledge" data-segment-panel="exports">
+            <p id="exportSummary" class="text-sm leading-7 text-slate-600">
+              Export the current draft, latest digest, prompt kit, memory, or profile snapshot.
+            </p>
+            <div class="mt-5 grid gap-3 sm:grid-cols-2">
+              <button class="ghost-card text-left transition hover:border-sky-300 hover:bg-sky-50/60 disabled:cursor-not-allowed disabled:opacity-50" data-export-type="current-snippet" type="button">
+                <span class="block text-sm font-semibold text-slate-900">Current draft</span>
+                <span class="mt-1 block text-sm leading-6 text-slate-600">Download the current editor contents.</span>
+              </button>
+              <button class="ghost-card text-left transition hover:border-sky-300 hover:bg-sky-50/60 disabled:cursor-not-allowed disabled:opacity-50" data-export-type="latest-digest" type="button">
+                <span class="block text-sm font-semibold text-slate-900">Latest digest</span>
+                <span class="mt-1 block text-sm leading-6 text-slate-600">Download the most recent digest markdown.</span>
+              </button>
+              <button class="ghost-card text-left transition hover:border-sky-300 hover:bg-sky-50/60 disabled:cursor-not-allowed disabled:opacity-50" data-export-type="selected-snippet-code" type="button">
+                <span class="block text-sm font-semibold text-slate-900">Selected library content</span>
+                <span class="mt-1 block text-sm leading-6 text-slate-600">Download the currently selected library content.</span>
+              </button>
+              <button class="ghost-card text-left transition hover:border-sky-300 hover:bg-sky-50/60 disabled:cursor-not-allowed disabled:opacity-50" data-export-type="selected-snippet-digest" type="button">
+                <span class="block text-sm font-semibold text-slate-900">Selected library digest</span>
+                <span class="mt-1 block text-sm leading-6 text-slate-600">Download the currently selected digest markdown.</span>
+              </button>
+              <button class="ghost-card text-left transition hover:border-sky-300 hover:bg-sky-50/60 disabled:cursor-not-allowed disabled:opacity-50" data-export-type="prompt-kit" type="button">
+                <span class="block text-sm font-semibold text-slate-900">Prompt kit</span>
+                <span class="mt-1 block text-sm leading-6 text-slate-600">Download the generated prompt kit markdown.</span>
+              </button>
+              <button class="ghost-card text-left transition hover:border-sky-300 hover:bg-sky-50/60 disabled:cursor-not-allowed disabled:opacity-50" data-export-type="memory" type="button">
+                <span class="block text-sm font-semibold text-slate-900">Memory</span>
+                <span class="mt-1 block text-sm leading-6 text-slate-600">Download the current style memory markdown.</span>
+              </button>
+              <button class="ghost-card text-left transition hover:border-sky-300 hover:bg-sky-50/60 disabled:cursor-not-allowed disabled:opacity-50" data-export-type="blueprint" type="button">
+                <span class="block text-sm font-semibold text-slate-900">Blueprint</span>
+                <span class="mt-1 block text-sm leading-6 text-slate-600">Download the current Studio blueprint markdown.</span>
+              </button>
+              <button class="ghost-card text-left transition hover:border-sky-300 hover:bg-sky-50/60 disabled:cursor-not-allowed disabled:opacity-50" data-export-type="profile" type="button">
+                <span class="block text-sm font-semibold text-slate-900">Profile JSON</span>
+                <span class="mt-1 block text-sm leading-6 text-slate-600">Download the manual plus learned profile snapshot.</span>
+              </button>
+              <button class="ghost-card text-left transition hover:border-sky-300 hover:bg-sky-50/60 disabled:cursor-not-allowed disabled:opacity-50" data-export-type="starter-prompt" type="button">
+                <span class="block text-sm font-semibold text-slate-900">Starter prompt</span>
+                <span class="mt-1 block text-sm leading-6 text-slate-600">Download the current starter prompt from Studio.</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="profileModal"
+      data-modal-root
+      aria-hidden="true"
+      class="fixed inset-0 z-40 hidden items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm"
+    >
+      <div
+        class="modal-shell max-w-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="profileModalTitle"
+      >
+        <div class="flex items-center justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-6">
+          <div>
+            <p class="section-label text-sky-700">profile/</p>
+            <h3 id="profileModalTitle" class="mt-1 text-lg font-semibold text-slate-900">Manage profile</h3>
+          </div>
+          <button
+            class="subtle-button h-10 w-10 px-0"
+            data-modal-close
+            type="button"
+            aria-label="Close profile editor"
+          >
+            ×
+          </button>
+        </div>
+
+        <div class="dialog-body">
+          <form id="profileForm" class="space-y-4">
+            <div class="grid gap-4 sm:grid-cols-2">
+              <label class="block">
+                <span class="section-label">name</span>
+                <input id="profileName" class="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10" type="text" placeholder="Your name" />
+              </label>
+              <label class="block">
+                <span class="section-label">role</span>
+                <input id="profileRole" class="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10" type="text" placeholder="Designer, engineer, founder..." />
+              </label>
+            </div>
+
+            <label class="block">
+              <span class="section-label">headline</span>
+              <input id="profileHeadlineInput" class="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10" type="text" placeholder="Short positioning statement" />
+            </label>
+
+            <label class="block">
+              <span class="section-label">focus</span>
+              <textarea id="profileFocus" class="mt-2 min-h-[88px] w-full resize-y rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-7 text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10" placeholder="What are you building toward right now?"></textarea>
+            </label>
+
+            <label class="block">
+              <span class="section-label">preferred stack</span>
+              <input id="profileStack" class="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10" type="text" placeholder="TypeScript, React, Node.js" />
+            </label>
+
+            <label class="block">
+              <span class="section-label">design taste</span>
+              <textarea id="profileDesignTaste" class="mt-2 min-h-[88px] w-full resize-y rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-7 text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10" placeholder="How should the product feel?"></textarea>
+            </label>
+
+            <label class="block">
+              <span class="section-label">build notes</span>
+              <textarea id="profileBuildNotes" class="mt-2 min-h-[112px] w-full resize-y rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-7 text-slate-800 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10" placeholder="Technical or product constraints you want the generator to remember"></textarea>
+            </label>
+
+            <div id="profileStatusBanner" class="status-banner border-slate-200 bg-slate-50 text-slate-600">
+              <p id="profileStatus" class="font-['IBM_Plex_Mono',monospace] text-xs leading-6">Profile changes save to the workspace profile and prompt kit.</p>
+            </div>
+
+            <div class="flex justify-end gap-2">
+              <button class="subtle-button" data-modal-close type="button">Cancel</button>
+              <button id="saveProfileButton" class="primary-button" type="submit">Save profile</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="promptModal"
+      data-modal-root
+      aria-hidden="true"
+      class="fixed inset-0 z-40 hidden items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm"
+    >
+      <div
+        class="modal-shell max-w-4xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="promptModalTitle"
+      >
+        <div class="flex items-center justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-6">
+          <div>
+            <p class="section-label text-sky-700">starter-prompt.md</p>
+            <h3 id="promptModalTitle" class="mt-1 text-lg font-semibold text-slate-900">Starter prompt</h3>
+          </div>
+          <button
+            class="subtle-button h-10 w-10 px-0"
+            data-modal-close
+            type="button"
+            aria-label="Close starter prompt dialog"
+          >
+            ×
+          </button>
+        </div>
+        <div class="dialog-body">
+          <div class="mb-4 flex justify-end">
+            <button id="copyPromptModalButton" class="subtle-button" type="button">Copy</button>
+          </div>
+          <pre id="starterPromptOutput" class="code-surface min-h-[320px]"></pre>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="helpModal"
+      data-modal-root
+      aria-hidden="true"
+      class="fixed inset-0 z-40 hidden items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm"
+    >
+      <div
+        class="modal-shell max-w-xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="helpModalTitle"
+      >
+        <div class="flex items-center justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-6">
+          <div>
+            <p class="section-label text-sky-700">guide/</p>
+            <h3 id="helpModalTitle" class="mt-1 text-lg font-semibold text-slate-900">How it works</h3>
+          </div>
+          <button
+            class="subtle-button h-10 w-10 px-0"
+            data-modal-close
+            type="button"
+            aria-label="Close guide"
+          >
+            ×
+          </button>
+        </div>
+        <div class="dialog-body">
+          <ol class="list-decimal space-y-3 pl-5 text-sm leading-7 text-slate-700">
+            <li>Set a manual profile once so product and design intent stay attached to the learned code signals.</li>
+            <li>Use Digest as the main path: paste code, digest it, then inspect the latest learned signals.</li>
+            <li>Open Tools only when you need formatting, syntax preview, or editor cleanup.</li>
+            <li>Use Library for comparison and Studio for turning the learned profile into concrete product direction.</li>
+            <li>Open Workspace only when you need deeper artifacts like prompt kit, memory, exports, and recent digest history.</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast" class="pointer-events-none fixed bottom-4 right-4 z-50 hidden max-w-sm rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-[0_10px_30px_rgba(15,23,42,0.12)]">
+      <p id="toastText" class="font-['IBM_Plex_Mono',monospace] text-xs leading-6 text-slate-700">Ready.</p>
+    </div>
 
     <script src="/app.js" type="module"></script>
   </body>
