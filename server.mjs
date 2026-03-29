@@ -34,6 +34,7 @@ const MAX_REMOTE_RESPONSE_BYTES = 2_000_000;
 const MAX_IMPORTED_TEXT_CHARS = 18_000;
 const MAX_PDF_BYTES = 5_000_000;
 const LIST_LIMIT = 80;
+const OPENAI_REQUEST_TIMEOUT_MS = 30_000;
 
 const TAG_GUIDE = [
   "frontend",
@@ -100,11 +101,18 @@ const server = createServer(async (request, response) => {
         await readJsonFile(PROFILE_FILE, buildDefaultProfile()),
       );
       const promptKitMarkdown = await readTextFile(PROMPT_KIT_FILE);
+      const tasteContext =
+        (await readJsonFile(CONTEXT_FILE, null)) ||
+        buildTasteContext({
+          profile,
+          memoryMarkdown: priorMemory,
+          promptKitMarkdown,
+        });
       const analysis = await analyzeSnippet({
         input,
         priorMemory,
-        profile,
         promptKitMarkdown,
+        tasteContext,
       });
       const persisted = await persistLearning({
         input,
@@ -121,16 +129,45 @@ const server = createServer(async (request, response) => {
 
       if (!input.url && !input.pdfBase64) {
         return sendJson(response, 400, {
-          error: "Provide a website or GitHub repository URL, or upload a PDF document.",
+          error:
+            "Provide a website or GitHub repository URL, or upload a PDF document.",
         });
       }
 
       return sendJson(response, 200, await importDigestSource(input));
     }
 
+    if (
+      request.method === "POST" &&
+      pathname.startsWith("/api/snippets/") &&
+      pathname.endsWith("/profile-inclusion")
+    ) {
+      const snippetId = pathname
+        .slice("/api/snippets/".length, -"/profile-inclusion".length)
+        .trim();
+
+      if (!snippetId) {
+        return sendJson(response, 400, { error: "Snippet id is required." });
+      }
+
+      const body = await readJsonBody(request);
+      return sendJson(
+        response,
+        200,
+        await updateSnippetProfileInclusion(snippetId, body),
+      );
+    }
+
     if (request.method === "POST" && pathname === "/api/profile") {
       const body = await readJsonBody(request);
       return sendJson(response, 200, await updateManualProfile(body));
+    }
+
+    if (
+      request.method === "POST" &&
+      pathname === "/api/profile/undo-last-change"
+    ) {
+      return sendJson(response, 200, await undoLastProfileChange());
     }
 
     if (request.method === "POST" && pathname === "/api/format") {
@@ -171,6 +208,10 @@ const server = createServer(async (request, response) => {
       const profile = withProfileDefaults(
         await readJsonFile(PROFILE_FILE, buildDefaultProfile()),
       );
+      const startedAt = Date.now();
+      console.info(
+        `[studio] generate-product start refinement=${Boolean(refinement)} context=${context?.type || "profile"}`,
+      );
       const blueprint = await generateProductBlueprint({
         idea,
         constraints,
@@ -180,6 +221,9 @@ const server = createServer(async (request, response) => {
         promptKitMarkdown,
         profile,
       });
+      console.info(
+        `[studio] generate-product complete mode=${blueprint.mode} duration_ms=${Date.now() - startedAt}`,
+      );
 
       return sendJson(response, 200, blueprint);
     }
@@ -192,7 +236,8 @@ const server = createServer(async (request, response) => {
   } catch (error) {
     console.error(error);
     return sendJson(response, 500, {
-      error: error instanceof Error ? error.message : "Unexpected server error.",
+      error:
+        error instanceof Error ? error.message : "Unexpected server error.",
     });
   }
 });
@@ -215,6 +260,7 @@ async function buildStatePayload() {
     memoryMarkdown,
     promptKitMarkdown,
     profile,
+    profileHistory: buildProfileHistory(index, profile),
     recentDigests: index.slice(0, 12),
   };
 }
@@ -226,10 +272,7 @@ async function listSnippets(query) {
     return index.slice(0, LIST_LIMIT);
   }
 
-  const queryTerms = query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean);
+  const queryTerms = query.toLowerCase().split(/\s+/).filter(Boolean);
 
   return index
     .filter((item) => {
@@ -263,7 +306,12 @@ async function getSnippetDetail(snippetId) {
     return null;
   }
 
-  return { snippet: detail };
+  return {
+    snippet: {
+      ...detail,
+      profileExcluded: Boolean(detail.profileExcluded),
+    },
+  };
 }
 
 function normalizeDigestInput(body) {
@@ -321,6 +369,32 @@ function normalizeBlueprintContext(context) {
   };
 }
 
+function normalizeDigestTasteContext(context) {
+  const safeContext = context && typeof context === "object" ? context : {};
+  const normalizeList = (values, limit = 6, itemLimit = 180) =>
+    uniqStrings(
+      (Array.isArray(values) ? values : [])
+        .map((value) => normalizeText(value, itemLimit))
+        .filter(Boolean),
+    ).slice(0, limit);
+
+  return {
+    manualSummary: normalizeText(safeContext.manualSummary, 600),
+    memoryExcerpt:
+      typeof safeContext.memoryExcerpt === "string"
+        ? safeContext.memoryExcerpt.slice(0, 2200).trim()
+        : "",
+    promptKitExcerpt:
+      typeof safeContext.promptKitExcerpt === "string"
+        ? safeContext.promptKitExcerpt.slice(0, 2200).trim()
+        : "",
+    directives: normalizeList(safeContext.directives, 6, 180),
+    avoid: normalizeList(safeContext.avoid, 6, 180),
+    languages: normalizeList(safeContext.languages, 6, 80),
+    tags: normalizeList(safeContext.tags, 8, 60),
+  };
+}
+
 async function importDigestSource(input) {
   if (input.url) {
     if (isGitHubRepositoryUrl(input.url)) {
@@ -338,7 +412,20 @@ async function importDigestSource(input) {
 }
 
 async function importWebsiteSource(url) {
-  const response = await fetchRemote(url);
+  let response;
+
+  try {
+    response = await fetchRemote(url);
+  } catch (error) {
+    const mediumFallback = await tryImportMediumArticle(url, error);
+
+    if (mediumFallback) {
+      return mediumFallback;
+    }
+
+    throw error;
+  }
+
   const contentType = response.headers.get("content-type") || "";
 
   if (/application\/pdf/i.test(contentType)) {
@@ -355,7 +442,10 @@ async function importWebsiteSource(url) {
     "Website reference";
   const description = normalizeText(extractMetaDescription(raw), 320);
   const headings = extractHeadingTexts(raw).slice(0, 6);
-  const bodyText = normalizeImportedText(extractReadableText(raw), MAX_IMPORTED_TEXT_CHARS);
+  const bodyText = normalizeImportedText(
+    extractReadableText(raw),
+    MAX_IMPORTED_TEXT_CHARS,
+  );
   const content = [
     `Reference type: Website`,
     `URL: ${url}`,
@@ -373,7 +463,113 @@ async function importWebsiteSource(url) {
     content,
     assetType: "website",
     sourceKind: "website",
-    importSummary: description || `Imported website content from ${new URL(url).hostname}.`,
+    importSummary:
+      description || `Imported website content from ${new URL(url).hostname}.`,
+  };
+}
+
+async function tryImportMediumArticle(url, error) {
+  if (!shouldUseMediumFallback(url, error)) {
+    return null;
+  }
+
+  try {
+    return await importMediumArticleFromFeed(url);
+  } catch {
+    return null;
+  }
+}
+
+async function importMediumArticleFromFeed(url) {
+  const mediumArticle = parseMediumArticleUrl(url);
+
+  if (!mediumArticle?.feedUrl) {
+    throw new Error(
+      "This Medium article does not expose a feed-based fallback.",
+    );
+  }
+
+  const response = await fetchWithTlsRetry(mediumArticle.feedUrl, {
+    headers: {
+      "User-Agent": "Code-Digest-Studio",
+      Accept: "application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+    redirect: "follow",
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Unable to fetch Medium feed "${mediumArticle.feedUrl}". Received ${response.status}.`,
+    );
+  }
+
+  const raw = await readResponseText(response);
+  const item = findMediumFeedItem(raw, mediumArticle);
+
+  if (!item) {
+    throw new Error(
+      "The requested Medium article was not found in the available feed.",
+    );
+  }
+
+  const title =
+    normalizeText(
+      decodeHtmlEntities(stripHtmlTags(extractXmlTagValue(item, "title"))),
+      140,
+    ) || "Medium article";
+  const description = normalizeText(
+    extractReadableText(extractXmlTagValue(item, "description")),
+    320,
+  );
+  const author = normalizeText(
+    decodeHtmlEntities(stripHtmlTags(extractXmlTagValue(item, "dc:creator"))),
+    120,
+  );
+  const publishedAt = normalizeText(
+    decodeHtmlEntities(stripHtmlTags(extractXmlTagValue(item, "pubDate"))),
+    80,
+  );
+  const headings = extractHeadingTexts(
+    extractXmlTagValue(item, "content:encoded"),
+  ).slice(0, 6);
+  const bodyText = normalizeImportedText(
+    extractReadableText(
+      extractXmlTagValue(item, "content:encoded") ||
+        extractXmlTagValue(item, "description"),
+    ),
+    MAX_IMPORTED_TEXT_CHARS,
+  );
+  const categories = uniqStrings(
+    extractXmlTagValues(item, "category")
+      .map((value) =>
+        normalizeText(decodeHtmlEntities(stripHtmlTags(value)), 80),
+      )
+      .filter(Boolean),
+  ).slice(0, 6);
+  const content = [
+    `Reference type: Website`,
+    `URL: ${url}`,
+    title ? `Title: ${title}` : "",
+    author ? `Author: ${author}` : "",
+    publishedAt ? `Published: ${publishedAt}` : "",
+    description ? `Description: ${description}` : "",
+    categories.length ? `Categories:\n- ${categories.join("\n- ")}` : "",
+    headings.length ? `Headings:\n- ${headings.join("\n- ")}` : "",
+    bodyText ? `Content excerpt:\n${bodyText}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  return {
+    title,
+    source: url,
+    content,
+    assetType: "website",
+    sourceKind: "website",
+    importSummary:
+      description ||
+      "Imported Medium article content through the feed fallback.",
   };
 }
 
@@ -403,42 +599,64 @@ async function importGitHubRepository(url) {
 
   try {
     const [readmeResponse, contentsResponse] = await Promise.all([
-      fetchWithTlsRetry(`https://api.github.com/repos/${repoRef.owner}/${repoRef.repo}/readme`, {
-        headers,
-      }),
-      fetchWithTlsRetry(`https://api.github.com/repos/${repoRef.owner}/${repoRef.repo}/contents`, {
-        headers,
-      }),
+      fetchWithTlsRetry(
+        `https://api.github.com/repos/${repoRef.owner}/${repoRef.repo}/readme`,
+        {
+          headers,
+        },
+      ),
+      fetchWithTlsRetry(
+        `https://api.github.com/repos/${repoRef.owner}/${repoRef.repo}/contents`,
+        {
+          headers,
+        },
+      ),
     ]);
 
     if (readmeResponse.ok) {
       const readmePayload = await readmeResponse.json();
-      readmeText = Buffer.from(readmePayload.content || "", "base64").toString("utf8");
+      readmeText = Buffer.from(readmePayload.content || "", "base64").toString(
+        "utf8",
+      );
     }
 
     if (contentsResponse.ok) {
       const contentsPayload = await contentsResponse.json();
       topLevelEntries = (Array.isArray(contentsPayload) ? contentsPayload : [])
         .slice(0, 12)
-        .map((entry) => `${entry.type === "dir" ? "dir" : "file"}: ${entry.name}`);
+        .map(
+          (entry) => `${entry.type === "dir" ? "dir" : "file"}: ${entry.name}`,
+        );
     }
   } catch {
     // Metadata is enough to continue when README or contents lookup fails.
   }
 
-  const readmeExcerpt = normalizeImportedText(readmeText, MAX_IMPORTED_TEXT_CHARS);
-  const title = normalizeText(repo.full_name || `${repoRef.owner}/${repoRef.repo}`, 140);
+  const readmeExcerpt = normalizeImportedText(
+    readmeText,
+    MAX_IMPORTED_TEXT_CHARS,
+  );
+  const title = normalizeText(
+    repo.full_name || `${repoRef.owner}/${repoRef.repo}`,
+    140,
+  );
   const content = [
     `Reference type: GitHub repository`,
     `Repository: ${repo.full_name || `${repoRef.owner}/${repoRef.repo}`}`,
     repo.html_url ? `URL: ${repo.html_url}` : `URL: ${url}`,
-    repo.description ? `Description: ${normalizeText(repo.description, 320)}` : "",
+    repo.description
+      ? `Description: ${normalizeText(repo.description, 320)}`
+      : "",
     repo.language ? `Primary language: ${repo.language}` : "",
     Array.isArray(repo.topics) && repo.topics.length
       ? `Topics: ${repo.topics.slice(0, 8).join(", ")}`
       : "",
-    Number.isFinite(repo.stargazers_count) ? `Stars: ${repo.stargazers_count}` : "",
-    topLevelEntries.length ? `Top-level entries:\n- ${topLevelEntries.join("\n- ")}` : "",
+    Number.isFinite(repo.stargazers_count)
+      ? `Stars: ${repo.stargazers_count}`
+      : "",
+    topLevelEntries.length
+      ? `Top-level entries:\n- ${topLevelEntries.join("\n- ")}`
+      : "",
     readmeExcerpt ? `README excerpt:\n${readmeExcerpt}` : "",
   ]
     .filter(Boolean)
@@ -481,7 +699,10 @@ async function importPdfBuffer(buffer, fileName, source = "") {
       "PDF document";
     const author = normalizeText(infoResult?.info?.Author, 120);
     const subject = normalizeText(infoResult?.info?.Subject, 180);
-    const excerpt = normalizeImportedText(textResult?.text || "", MAX_IMPORTED_TEXT_CHARS);
+    const excerpt = normalizeImportedText(
+      textResult?.text || "",
+      MAX_IMPORTED_TEXT_CHARS,
+    );
     const content = [
       "Reference type: PDF document",
       source ? `Source: ${source}` : "",
@@ -512,7 +733,12 @@ async function importPdfBuffer(buffer, fileName, source = "") {
   }
 }
 
-async function analyzeSnippet({ input, priorMemory, profile, promptKitMarkdown }) {
+async function analyzeSnippet({
+  input,
+  priorMemory,
+  promptKitMarkdown,
+  tasteContext,
+}) {
   const heuristic = analyzeHeuristically(input);
 
   if (!process.env.OPENAI_API_KEY) {
@@ -525,24 +751,51 @@ async function analyzeSnippet({ input, priorMemory, profile, promptKitMarkdown }
   }
 
   try {
-    const payload = await callOpenAIDigest({
-      input,
-      priorMemory,
-      profile,
-      promptKitMarkdown,
-      heuristic,
-    });
-    const text = extractResponseText(payload);
-    const parsed = JSON.parse(text);
+    let lastPayload = null;
 
-    return normalizeAnalysis({
-      ...parsed,
-      mode: "ai",
-      model: payload.model || process.env.OPENAI_MODEL || "gpt-4.1-mini",
-      requestId: payload.id || randomUUID(),
-    });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const payload = await callOpenAIDigest({
+        input,
+        tasteContext: normalizeDigestTasteContext(tasteContext),
+        heuristic,
+        attempt,
+      });
+      lastPayload = payload;
+
+      try {
+        const parsed = parseOpenAIJsonOutput(payload, "digest");
+        const normalized = normalizeAnalysis({
+          ...parsed,
+          mode: "ai",
+          model: payload.model || process.env.OPENAI_MODEL || "gpt-4.1-mini",
+          requestId: payload.id || randomUUID(),
+        });
+
+        return attachAnalysisArtifacts({
+          input,
+          priorMemory,
+          promptKitMarkdown,
+          analysis: normalized,
+        });
+      } catch (error) {
+        if (attempt === 0 && shouldRetryOpenAIDigest(error, payload)) {
+          console.warn(
+            `Retrying OpenAI digest after invalid JSON: ${formatErrorMessage(error)}`,
+          );
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    throw new Error(
+      `OpenAI digest response could not be parsed.${lastPayload?.id ? ` Request ID: ${lastPayload.id}` : ""}`,
+    );
   } catch (error) {
-    console.warn(`Falling back to heuristic digest: ${formatErrorMessage(error)}`);
+    console.warn(
+      `Falling back to heuristic digest: ${formatErrorMessage(error)}`,
+    );
     return buildFallbackAnalysis({
       input,
       priorMemory,
@@ -555,24 +808,27 @@ async function analyzeSnippet({ input, priorMemory, profile, promptKitMarkdown }
 
 async function callOpenAIDigest({
   input,
-  priorMemory,
-  profile,
-  promptKitMarkdown,
+  tasteContext,
   heuristic,
+  attempt = 0,
 }) {
   const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
   const systemPrompt = [
     "You are Code Digest, an AI that learns a developer's taste from artifacts they admire.",
-    "You will analyze one saved artifact and update the developer's long-term memory.",
+    "You will analyze one saved artifact against a compact developer taste context.",
     "The artifact may be raw code, imported website content, a GitHub repository summary, or extracted PDF text.",
     "Make grounded inferences only. Prefer cautious signals over inflated claims.",
     "Use the developer's own notes and reason for saving the artifact as strong evidence.",
     "Classify with one or more tags. Use this base taxonomy when appropriate:",
     TAG_GUIDE.join(", "),
-    "The updatedMemoryMarkdown field must be a complete markdown document that replaces the existing style memory.",
-    "The learningEntryMarkdown field must be a markdown section about this artifact only.",
     "The buildDirectives field should contain concrete instructions future code generators should follow.",
     "The antiPatternsToAvoid field should capture what this artifact suggests the developer wants to avoid.",
+    "Do not repeat raw source content or long code excerpts.",
+    "Keep the summary under 2 sentences.",
+    "Return at most 4 items per array and keep each item concise.",
+    attempt > 0
+      ? "Your previous response was invalid or truncated. Return shorter JSON and keep every string compact."
+      : "",
     "Return strict JSON only.",
   ].join(" ");
 
@@ -592,8 +848,6 @@ async function callOpenAIDigest({
       reusablePatterns: { type: "array", items: { type: "string" } },
       buildDirectives: { type: "array", items: { type: "string" } },
       antiPatternsToAvoid: { type: "array", items: { type: "string" } },
-      learningEntryMarkdown: { type: "string" },
-      updatedMemoryMarkdown: { type: "string" },
     },
     required: [
       "title",
@@ -608,8 +862,6 @@ async function callOpenAIDigest({
       "reusablePatterns",
       "buildDirectives",
       "antiPatternsToAvoid",
-      "learningEntryMarkdown",
-      "updatedMemoryMarkdown",
     ],
   };
 
@@ -627,11 +879,9 @@ async function callOpenAIDigest({
             type: "input_text",
             text: JSON.stringify(
               {
-                task: "Digest this saved artifact and update the long-term developer taste memory.",
+                task: "Digest this saved artifact against the developer taste context.",
                 userInput: input,
-                priorMemoryMarkdown: priorMemory,
-                promptKitMarkdown,
-                profileSnapshot: profile,
+                tasteContext,
                 heuristicBaseline: heuristic,
               },
               null,
@@ -648,23 +898,10 @@ async function callOpenAIDigest({
         schema,
       },
     },
-    max_output_tokens: 3200,
+    max_output_tokens: attempt > 0 ? 5200 : 4200,
   };
 
-  const result = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify(requestBody),
-  });
-
-  if (!result.ok) {
-    throw await buildOpenAIError(result, "digest");
-  }
-
-  return result.json();
+  return callOpenAIResponses(requestBody, "digest");
 }
 
 async function generateProductBlueprint({
@@ -708,7 +945,9 @@ async function generateProductBlueprint({
       requestId: payload.id || randomUUID(),
     });
   } catch (error) {
-    console.warn(`Falling back to heuristic blueprint: ${formatErrorMessage(error)}`);
+    console.warn(
+      `Falling back to heuristic blueprint: ${formatErrorMessage(error)}`,
+    );
     return buildFallbackBlueprint({
       idea,
       constraints,
@@ -810,20 +1049,43 @@ async function callOpenAIProductBlueprint({
     max_output_tokens: 2200,
   };
 
-  const result = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify(requestBody),
-  });
+  return callOpenAIResponses(requestBody, "blueprint");
+}
 
-  if (!result.ok) {
-    throw await buildOpenAIError(result, "blueprint");
+async function callOpenAIResponses(requestBody, operation) {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    OPENAI_REQUEST_TIMEOUT_MS,
+  );
+
+  try {
+    const result = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal,
+    });
+
+    if (!result.ok) {
+      throw await buildOpenAIError(result, operation);
+    }
+
+    return result.json();
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(
+        `OpenAI ${operation} request timed out after ${Math.round(OPENAI_REQUEST_TIMEOUT_MS / 1000)}s.`,
+      );
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  return result.json();
 }
 
 function extractResponseText(payload) {
@@ -842,6 +1104,47 @@ function extractResponseText(payload) {
   throw new Error("OpenAI response did not include text output.");
 }
 
+function parseOpenAIJsonOutput(payload, operation) {
+  const text = extractResponseText(payload).trim();
+
+  if (!text) {
+    throw new Error(`OpenAI ${operation} response was empty.`);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    const status =
+      payload?.status && payload.status !== "completed"
+        ? ` status=${payload.status};`
+        : "";
+    const incompleteDetails = payload?.incomplete_details
+      ? ` incomplete=${JSON.stringify(payload.incomplete_details)};`
+      : "";
+    throw new Error(
+      `OpenAI ${operation} returned invalid JSON: ${formatErrorMessage(error)}.${status}${incompleteDetails}`,
+    );
+  }
+}
+
+function shouldRetryOpenAIDigest(error, payload) {
+  const message = formatErrorMessage(error).toLowerCase();
+
+  if (
+    payload?.status === "incomplete" ||
+    payload?.incomplete_details?.reason === "max_output_tokens"
+  ) {
+    return true;
+  }
+
+  return (
+    message.includes("invalid json") ||
+    message.includes("unterminated string") ||
+    message.includes("unexpected end of json input") ||
+    message.includes("response was empty")
+  );
+}
+
 function formatErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -852,9 +1155,7 @@ async function buildOpenAIError(response, operation) {
   try {
     const payload = await response.json();
     details =
-      payload?.error?.message ||
-      payload?.message ||
-      JSON.stringify(payload);
+      payload?.error?.message || payload?.message || JSON.stringify(payload);
   } catch {
     try {
       details = (await response.text()).trim();
@@ -888,6 +1189,10 @@ function analyzeHeuristically(input) {
     countMatches(trimmed, /\bfor\s*\(/g) +
     countMatches(trimmed, /\bwhile\s*\(/g) +
     countMatches(trimmed, /\bcatch\s*\(/g);
+  const jsxElementCount = countMatches(trimmed, /<\/?[A-Za-z][\w.]*/g);
+  const conditionalRenderCount =
+    countMatches(trimmed, /\?\s*[\s\S]{0,80}:/g) +
+    countMatches(trimmed, /&&\s*</g);
 
   let language = "Unknown";
   let confidence = 0.25;
@@ -897,28 +1202,30 @@ function analyzeHeuristically(input) {
       language: "TSX / React",
       confidence: 0.95,
       test:
-        /<\/?[A-Z][A-Za-z0-9]*|className=|useState\(|useEffect\(|tsx/i.test(trimmed) &&
-        /return\s*\(|<div|<>|<\/[A-Za-z]/.test(trimmed),
+        /<\/?[A-Z][A-Za-z0-9]*|className=|useState\(|useEffect\(|tsx/i.test(
+          trimmed,
+        ) && /return\s*\(|<div|<>|<\/[A-Za-z]/.test(trimmed),
     },
     {
       language: "TypeScript",
       confidence: 0.9,
-      test:
-        /\binterface\s+\w+|\btype\s+\w+\s*=|:\s*(string|number|boolean|Promise<|Record<)|\bimplements\b/.test(
-          trimmed,
-        ),
+      test: /\binterface\s+\w+|\btype\s+\w+\s*=|:\s*(string|number|boolean|Promise<|Record<)|\bimplements\b/.test(
+        trimmed,
+      ),
     },
     {
       language: "JavaScript",
       confidence: 0.82,
-      test:
-        /\bconst\b|\blet\b|\bfunction\b|=>|module\.exports|require\(/.test(trimmed),
+      test: /\bconst\b|\blet\b|\bfunction\b|=>|module\.exports|require\(/.test(
+        trimmed,
+      ),
     },
     {
       language: "Python",
       confidence: 0.9,
-      test:
-        /\bdef\s+\w+\(|\bimport\s+\w+|if __name__ == ["']__main__["']|:\n\s+/.test(trimmed),
+      test: /\bdef\s+\w+\(|\bimport\s+\w+|if __name__ == ["']__main__["']|:\n\s+/.test(
+        trimmed,
+      ),
     },
     {
       language: "Go",
@@ -974,7 +1281,9 @@ function analyzeHeuristically(input) {
     )
   ) {
     tags.add("frontend");
-    buildDirectives.push("Keep the UI composition modular and layout decisions explicit.");
+    buildDirectives.push(
+      "Keep the UI composition modular and layout decisions explicit.",
+    );
   }
 
   if (
@@ -984,47 +1293,93 @@ function analyzeHeuristically(input) {
   ) {
     tags.add("backend");
     tags.add("api");
-    buildDirectives.push("Keep request handling small and separated from domain logic.");
+    buildDirectives.push(
+      "Keep request handling small and separated from domain logic.",
+    );
   }
 
-  if (/select\b|insert\b|update\b|delete\b|schema|migration|prisma|sequelize|typeorm|sql/i.test(lower)) {
+  if (
+    /select\b|insert\b|update\b|delete\b|schema|migration|prisma|sequelize|typeorm|sql/i.test(
+      lower,
+    )
+  ) {
     tags.add("database");
-    buildDirectives.push("Treat persistence as a clear boundary with explicit queries or schemas.");
+    buildDirectives.push(
+      "Treat persistence as a clear boundary with explicit queries or schemas.",
+    );
   }
 
   if (/auth|token|jwt|session|oauth|permission|role/i.test(lower)) {
     tags.add("authentication");
     tags.add("security");
-    antiPatternsToAvoid.push("Do not bury authorization rules inside unrelated feature code.");
+    antiPatternsToAvoid.push(
+      "Do not bury authorization rules inside unrelated feature code.",
+    );
   }
 
-  if (/describe\(|it\(|test\(|expect\(|assert\b|pytest|jest|vitest/i.test(trimmed)) {
+  if (
+    /describe\(|it\(|test\(|expect\(|assert\b|pytest|jest|vitest/i.test(trimmed)
+  ) {
     tags.add("testing");
-    inferredPreferences.push("Values executable examples and verification close to behavior.");
+    inferredPreferences.push(
+      "Values executable examples and verification close to behavior.",
+    );
   }
 
-  if (/docker|kubernetes|terraform|github actions|workflow|ci|cd|deploy/i.test(lower)) {
+  if (
+    /\b(docker|kubernetes|terraform|github actions|ci\/cd|continuous integration|continuous deployment|deploy|deployment|pipeline)\b/i.test(
+      lower,
+    )
+  ) {
     tags.add("devops");
   }
 
-  if (/map\(|filter\(|reduce\(|sort\(|transform|normalize|serialize|parse/i.test(trimmed)) {
+  if (
+    /(?:\.|\b)(map|filter|reduce|sort)\s*\(|\bjson\.(parse|stringify)\b|\bserialize[A-Za-z0-9_]*\b|\bdeserialize[A-Za-z0-9_]*\b|\bparse[A-Z_][A-Za-z0-9_]*\b|\bnormalize[A-Z_][A-Za-z0-9_]*\b/i.test(
+      trimmed,
+    )
+  ) {
     tags.add("data-processing");
-    reusablePatterns.push("Use focused transformation steps instead of sprawling mutation.");
+    reusablePatterns.push(
+      "Use focused transformation steps instead of sprawling mutation.",
+    );
   }
 
-  if (/service|repository|adapter|factory|strategy|domain|usecase|controller/i.test(lower)) {
+  if (
+    /service|repository|adapter|factory|strategy|domain|usecase|controller/i.test(
+      lower,
+    )
+  ) {
     tags.add("architecture");
-    inferredPreferences.push("Likely prefers intention-revealing layers and named boundaries.");
-    buildDirectives.push("Model layers explicitly so responsibilities stay legible.");
+    inferredPreferences.push(
+      "Likely prefers intention-revealing layers and named boundaries.",
+    );
+    buildDirectives.push(
+      "Model layers explicitly so responsibilities stay legible.",
+    );
   }
 
-  if (/cache|memo|debounce|throttle|batch|queue|parallel|optimiz/i.test(lower)) {
+  if (
+    /cache|memo|debounce|throttle|batch|queue|parallel|optimiz/i.test(lower)
+  ) {
     tags.add("performance");
   }
 
-  if (complexityScore >= 3 || lineCount > 40 || /try\s*\{/.test(trimmed)) {
+  const isMarkupHeavyUi =
+    language === "TSX / React" &&
+    jsxElementCount >= 8 &&
+    complexityScore + conditionalRenderCount <= 2;
+
+  if (
+    complexityScore >= 3 ||
+    /try\s*\{/.test(trimmed) ||
+    (!isMarkupHeavyUi &&
+      (lineCount > 80 || complexityScore + conditionalRenderCount >= 2))
+  ) {
     tags.add("complex-logic");
-    risksOrTradeoffs.push("As logic density rises, naming and function boundaries matter more.");
+    risksOrTradeoffs.push(
+      "As logic density rises, naming and function boundaries matter more.",
+    );
   } else {
     tags.add("simple-logic");
   }
@@ -1034,43 +1389,73 @@ function analyzeHeuristically(input) {
   }
 
   if (/\n\s{2,}\S/.test(trimmed)) {
-    styleObservations.push("Whitespace and structure are used deliberately for readability.");
+    styleObservations.push(
+      "Whitespace and structure are used deliberately for readability.",
+    );
   }
   if (/return\s+[{[]/.test(trimmed)) {
-    styleObservations.push("Return shapes are made explicit instead of being hidden in side effects.");
+    styleObservations.push(
+      "Return shapes are made explicit instead of being hidden in side effects.",
+    );
   }
-  if (/const\s+[A-Z][A-Za-z0-9]+/.test(trimmed) || /\btype\s+[A-Z]/.test(trimmed)) {
-    styleObservations.push("Names abstractions clearly and treats structure as part of quality.");
+  if (
+    /const\s+[A-Z][A-Za-z0-9]+/.test(trimmed) ||
+    /\btype\s+[A-Z]/.test(trimmed)
+  ) {
+    styleObservations.push(
+      "Names abstractions clearly and treats structure as part of quality.",
+    );
   }
   if (/try\s*\{[\s\S]*catch/.test(trimmed)) {
-    styleObservations.push("Failure paths are acknowledged instead of assuming a perfect path.");
+    styleObservations.push(
+      "Failure paths are acknowledged instead of assuming a perfect path.",
+    );
   }
 
   if (/interface|type|zod|schema/i.test(trimmed)) {
-    inferredPreferences.push("Values explicit contracts and strong boundaries.");
+    inferredPreferences.push(
+      "Values explicit contracts and strong boundaries.",
+    );
     reusablePatterns.push("Model contracts before implementation details.");
     buildDirectives.push("Keep types and schemas visible at boundaries.");
-    antiPatternsToAvoid.push("Avoid loose implicit data shapes around important flows.");
+    antiPatternsToAvoid.push(
+      "Avoid loose implicit data shapes around important flows.",
+    );
   }
   if (/map\(|filter\(|reduce\(/.test(trimmed)) {
-    inferredPreferences.push("Leans toward declarative transformation over manual mutation.");
+    inferredPreferences.push(
+      "Leans toward declarative transformation over manual mutation.",
+    );
   }
   if (/className=|tailwind|styled|css/.test(trimmed)) {
-    inferredPreferences.push("Cares about the presentation layer and UI composition details.");
+    inferredPreferences.push(
+      "Cares about the presentation layer and UI composition details.",
+    );
   }
 
-  if (/className=|<div|<section/i.test(trimmed) && !/aria-|role=|label/i.test(trimmed)) {
-    risksOrTradeoffs.push("UI-oriented code may still need explicit accessibility cues.");
+  if (
+    /className=|<div|<section/i.test(trimmed) &&
+    !/aria-|role=|label/i.test(trimmed)
+  ) {
+    risksOrTradeoffs.push(
+      "UI-oriented code may still need explicit accessibility cues.",
+    );
   }
   if (/reduce\(|Promise\.all|parallel|batch/i.test(trimmed)) {
-    risksOrTradeoffs.push("Dense transformations can become harder to debug without careful naming.");
+    risksOrTradeoffs.push(
+      "Dense transformations can become harder to debug without careful naming.",
+    );
   }
   if (!risksOrTradeoffs.length) {
-    risksOrTradeoffs.push("A single saved source is useful evidence, but broader taste should be inferred carefully.");
+    risksOrTradeoffs.push(
+      "A single saved source is useful evidence, but broader taste should be inferred carefully.",
+    );
   }
 
   if (input.reason) {
-    inferredPreferences.push(`The developer explicitly values: ${input.reason}`);
+    inferredPreferences.push(
+      `The developer explicitly values: ${input.reason}`,
+    );
     buildDirectives.push(`Honor this stated preference: ${input.reason}`);
   }
 
@@ -1079,11 +1464,15 @@ function analyzeHeuristically(input) {
   }
 
   if (!buildDirectives.length) {
-    buildDirectives.push("Favor code that reads cleanly at the boundary between intent and implementation.");
+    buildDirectives.push(
+      "Favor code that reads cleanly at the boundary between intent and implementation.",
+    );
   }
 
   if (!antiPatternsToAvoid.length) {
-    antiPatternsToAvoid.push("Avoid over-abstracting beyond what the source actually justifies.");
+    antiPatternsToAvoid.push(
+      "Avoid over-abstracting beyond what the source actually justifies.",
+    );
   }
 
   return {
@@ -1112,7 +1501,9 @@ function analyzeHeuristically(input) {
 function analyzeReferenceHeuristically(input) {
   const trimmed = input.code.trim();
   const lower = trimmed.toLowerCase();
-  const assetLabel = formatArtifactType(input.assetType || input.sourceKind || "reference");
+  const assetLabel = formatArtifactType(
+    input.assetType || input.sourceKind || "reference",
+  );
   const tags = new Set(["research"]);
   const styleObservations = [];
   const inferredPreferences = [];
@@ -1121,48 +1512,82 @@ function analyzeReferenceHeuristically(input) {
   const antiPatternsToAvoid = [];
   const risksOrTradeoffs = [];
 
-  if (/react|tailwind|component|frontend|ui|ux|design system|interaction/i.test(lower)) {
+  if (
+    /react|tailwind|component|frontend|ui|ux|design system|interaction/i.test(
+      lower,
+    )
+  ) {
     tags.add("frontend");
-    inferredPreferences.push("Finds value in UI patterns, interaction details, and design references.");
-    buildDirectives.push("Translate visual and interaction references into explicit UI decisions.");
+    inferredPreferences.push(
+      "Finds value in UI patterns, interaction details, and design references.",
+    );
+    buildDirectives.push(
+      "Translate visual and interaction references into explicit UI decisions.",
+    );
   }
 
-  if (/api|backend|server|auth|database|schema|repository|service|architecture/i.test(lower)) {
+  if (
+    /api|backend|server|auth|database|schema|repository|service|architecture/i.test(
+      lower,
+    )
+  ) {
     tags.add("architecture");
     tags.add("backend");
-    buildDirectives.push("Extract the structural ideas before committing to implementation details.");
+    buildDirectives.push(
+      "Extract the structural ideas before committing to implementation details.",
+    );
   }
 
   if (/typescript|javascript|python|go|rust|tsx|react/i.test(lower)) {
     tags.add("data-processing");
-    reusablePatterns.push("Capture concrete implementation cues alongside higher-level taste signals.");
+    reusablePatterns.push(
+      "Capture concrete implementation cues alongside higher-level taste signals.",
+    );
   }
 
   if (/readme|getting started|usage|installation|documentation/i.test(lower)) {
-    styleObservations.push("The reference carries explanatory context, not just implementation detail.");
-    inferredPreferences.push("Values sources that explain intent and usage, not only final output.");
+    styleObservations.push(
+      "The reference carries explanatory context, not just implementation detail.",
+    );
+    inferredPreferences.push(
+      "Values sources that explain intent and usage, not only final output.",
+    );
   }
 
   if (input.assetType === "github-repo") {
     tags.add("architecture");
-    reusablePatterns.push("Use repository-level references to learn stack, structure, and product boundaries.");
-    styleObservations.push("Repository metadata offers clues about preferred stack, product shape, and file organization.");
+    reusablePatterns.push(
+      "Use repository-level references to learn stack, structure, and product boundaries.",
+    );
+    styleObservations.push(
+      "Repository metadata offers clues about preferred stack, product shape, and file organization.",
+    );
   }
 
   if (input.assetType === "website") {
     tags.add("frontend");
-    styleObservations.push("Website references capture product framing, language, and interface cues.");
-    reusablePatterns.push("Lift vocabulary, hierarchy, and product positioning into future briefs.");
+    styleObservations.push(
+      "Website references capture product framing, language, and interface cues.",
+    );
+    reusablePatterns.push(
+      "Lift vocabulary, hierarchy, and product positioning into future briefs.",
+    );
   }
 
   if (input.assetType === "pdf") {
     tags.add("business-logic");
-    styleObservations.push("Document references often surface richer rationale, terminology, and long-form intent.");
-    buildDirectives.push("Summarize the strongest ideas from the document before turning them into implementation tasks.");
+    styleObservations.push(
+      "Document references often surface richer rationale, terminology, and long-form intent.",
+    );
+    buildDirectives.push(
+      "Summarize the strongest ideas from the document before turning them into implementation tasks.",
+    );
   }
 
   if (input.reason) {
-    inferredPreferences.push(`The developer explicitly values: ${input.reason}`);
+    inferredPreferences.push(
+      `The developer explicitly values: ${input.reason}`,
+    );
     buildDirectives.push(`Keep this stated intent visible: ${input.reason}`);
   }
 
@@ -1171,23 +1596,35 @@ function analyzeReferenceHeuristically(input) {
   }
 
   if (!styleObservations.length) {
-    styleObservations.push("The imported reference gives broader context than raw code alone.");
+    styleObservations.push(
+      "The imported reference gives broader context than raw code alone.",
+    );
   }
 
   if (!inferredPreferences.length) {
-    inferredPreferences.push("Uses references to sharpen taste, product direction, and implementation preferences.");
+    inferredPreferences.push(
+      "Uses references to sharpen taste, product direction, and implementation preferences.",
+    );
   }
 
   if (!reusablePatterns.length) {
-    reusablePatterns.push("Condense external references into a short set of reusable directives.");
+    reusablePatterns.push(
+      "Condense external references into a short set of reusable directives.",
+    );
   }
 
   if (!buildDirectives.length) {
-    buildDirectives.push("Turn the imported material into concrete decisions the next implementation can follow.");
+    buildDirectives.push(
+      "Turn the imported material into concrete decisions the next implementation can follow.",
+    );
   }
 
-  antiPatternsToAvoid.push("Avoid copying imported material verbatim without extracting the underlying taste signal.");
-  risksOrTradeoffs.push("Reference material can be broader and noisier than code, so only strong recurring signals should shape the profile.");
+  antiPatternsToAvoid.push(
+    "Avoid copying imported material verbatim without extracting the underlying taste signal.",
+  );
+  risksOrTradeoffs.push(
+    "Reference material can be broader and noisier than code, so only strong recurring signals should shape the profile.",
+  );
 
   return {
     title: input.title || buildTitle(assetLabel, tags),
@@ -1218,80 +1655,136 @@ function buildFallbackAnalysis({
   heuristic,
   error,
 }) {
-  const timestamp = new Date().toISOString();
-  const updatedMemoryMarkdown = buildFallbackMemoryMarkdown({
-    input,
-    priorMemory,
-    promptKitMarkdown,
-    heuristic,
-    timestamp,
-    error,
-  });
-
-  const learningEntryMarkdown = [
-    `## ${timestamp} · ${heuristic.title}`,
-    "",
-    `- Mode: heuristic`,
-    `- Artifact type: ${formatArtifactType(input.assetType || input.sourceKind || "code")}`,
-    `- Language: ${heuristic.language} (${Math.round(heuristic.languageConfidence * 100)}% confidence)`,
-    `- Tags: ${heuristic.tags.join(", ")}`,
-    input.source ? `- Source: ${input.source}` : "",
-    input.reason ? `- Why saved: ${input.reason}` : "",
-    input.notes ? `- Notes: ${input.notes}` : "",
-    "",
-    "### What Works",
-    ...heuristic.whyItWorks.map((item) => `- ${item}`),
-    "",
-    "### Preferences",
-    ...heuristic.inferredPreferences.map((item) => `- ${item}`),
-    "",
-    "### Build Directives",
-    ...heuristic.buildDirectives.map((item) => `- ${item}`),
-    "",
-    "### Reusable Patterns",
-    ...heuristic.reusablePatterns.map((item) => `- ${item}`),
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  return normalizeAnalysis({
+  const normalized = normalizeAnalysis({
     ...heuristic,
-    learningEntryMarkdown,
-    updatedMemoryMarkdown,
     mode: "heuristic",
     model: "local-heuristic-engine",
     requestId: randomUUID(),
     summary:
       error instanceof Error
-        ? `${heuristic.summary} AI fallback reason: ${error.message}.`
+        ? `${heuristic.summary} AI fallback reason: ${summarizeFallbackError(error)}.`
         : heuristic.summary,
+  });
+
+  return attachAnalysisArtifacts({
+    input,
+    priorMemory,
+    promptKitMarkdown,
+    analysis: normalized,
+    error,
   });
 }
 
-function buildFallbackMemoryMarkdown({
+function summarizeFallbackError(error) {
+  const message = formatErrorMessage(error);
+  const lower = message.toLowerCase();
+
+  if (
+    lower.includes("invalid json") ||
+    lower.includes("unterminated string") ||
+    lower.includes("unexpected end of json input")
+  ) {
+    return "AI returned incomplete JSON";
+  }
+
+  if (lower.includes("response was empty")) {
+    return "AI returned empty output";
+  }
+
+  if (lower.includes("401") || lower.includes("incorrect api key")) {
+    return "AI authentication failed";
+  }
+
+  if (lower.includes("429") || lower.includes("rate/quota")) {
+    return "AI rate or quota limit hit";
+  }
+
+  return truncateText(message, 160);
+}
+
+function attachAnalysisArtifacts({
   input,
   priorMemory,
   promptKitMarkdown,
-  heuristic,
+  analysis,
+  error,
+}) {
+  const timestamp = new Date().toISOString();
+
+  return {
+    ...analysis,
+    learningEntryMarkdown: buildLearningEntryMarkdown({
+      input,
+      analysis,
+      timestamp,
+    }),
+    updatedMemoryMarkdown: buildUpdatedMemoryMarkdown({
+      input,
+      priorMemory,
+      promptKitMarkdown,
+      analysis,
+      timestamp,
+      error,
+    }),
+  };
+}
+
+function buildLearningEntryMarkdown({ input, analysis, timestamp }) {
+  return [
+    `## ${timestamp} · ${analysis.title}`,
+    "",
+    `- Mode: ${analysis.mode}`,
+    `- Artifact type: ${formatArtifactType(input.assetType || input.sourceKind || "code")}`,
+    `- Language: ${analysis.language} (${Math.round(analysis.languageConfidence * 100)}% confidence)`,
+    `- Tags: ${analysis.tags.join(", ")}`,
+    input.source ? `- Source: ${input.source}` : "",
+    input.reason ? `- Why saved: ${input.reason}` : "",
+    input.notes ? `- Notes: ${input.notes}` : "",
+    "",
+    "### What Works",
+    ...analysis.whyItWorks.map((item) => `- ${item}`),
+    "",
+    "### Preferences",
+    ...analysis.inferredPreferences.map((item) => `- ${item}`),
+    "",
+    "### Build Directives",
+    ...analysis.buildDirectives.map((item) => `- ${item}`),
+    "",
+    "### Reusable Patterns",
+    ...analysis.reusablePatterns.map((item) => `- ${item}`),
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildUpdatedMemoryMarkdown({
+  input,
+  priorMemory,
+  promptKitMarkdown,
+  analysis,
   timestamp,
   error,
 }) {
   const priorSections =
-    priorMemory && !/No sources digested yet\./.test(priorMemory) ? priorMemory.trim() : "";
-  const evidenceLines = heuristic.inferredPreferences.length
-    ? heuristic.inferredPreferences
+    priorMemory && !/No sources digested yet\./.test(priorMemory)
+      ? priorMemory.trim()
+      : "";
+  const evidenceLines = analysis.inferredPreferences.length
+    ? analysis.inferredPreferences
     : ["Collect more saved sources to sharpen this profile."];
-  const directiveLines = heuristic.buildDirectives.length
-    ? heuristic.buildDirectives
+  const directiveLines = analysis.buildDirectives.length
+    ? analysis.buildDirectives
     : ["Keep future implementations explicit and intention-revealing."];
-  const avoidLines = heuristic.antiPatternsToAvoid.length
-    ? heuristic.antiPatternsToAvoid
+  const avoidLines = analysis.antiPatternsToAvoid.length
+    ? analysis.antiPatternsToAvoid
     : ["Avoid inferring too much from a single saved source."];
   const promptKitHint = promptKitMarkdown.trim()
     ? "Future generators should also consult prompt-kit.md for the operational version of this taste profile."
     : "";
   const errorNote =
-    error instanceof Error ? `> Latest AI attempt fell back to heuristics: ${error.message}` : "";
+    error instanceof Error
+      ? `> Latest AI attempt fell back to heuristics: ${summarizeFallbackError(error)}`
+      : "";
 
   return [
     "# Developer Taste Memory",
@@ -1302,7 +1795,7 @@ function buildFallbackMemoryMarkdown({
     ...evidenceLines.map((item) => `- ${item}`),
     "",
     "## Style Signals From The Latest Artifact",
-    ...heuristic.styleObservations.map((item) => `- ${item}`),
+    ...analysis.styleObservations.map((item) => `- ${item}`),
     "",
     "## Build Directives",
     ...directiveLines.map((item) => `- ${item}`),
@@ -1311,7 +1804,7 @@ function buildFallbackMemoryMarkdown({
     ...avoidLines.map((item) => `- ${item}`),
     "",
     "## Language Lean",
-    `- ${heuristic.language}`,
+    `- ${analysis.language}`,
     input.assetType && input.assetType !== "code"
       ? `- Latest imported artifact: ${formatArtifactType(input.assetType)}`
       : "",
@@ -1343,9 +1836,11 @@ function normalizeAnalysis(analysis) {
     reusablePatterns: uniqStrings(analysis.reusablePatterns),
     buildDirectives: uniqStrings(analysis.buildDirectives),
     antiPatternsToAvoid: uniqStrings(analysis.antiPatternsToAvoid),
-    learningEntryMarkdown: analysis.learningEntryMarkdown || "## Learning entry unavailable",
+    learningEntryMarkdown:
+      analysis.learningEntryMarkdown || "## Learning entry unavailable",
     updatedMemoryMarkdown:
-      analysis.updatedMemoryMarkdown || "# Developer Taste Memory\n\nNo sources digested yet.\n",
+      analysis.updatedMemoryMarkdown ||
+      "# Developer Taste Memory\n\nNo sources digested yet.\n",
     mode: analysis.mode || "unknown",
     model: analysis.model || "unknown",
     requestId: analysis.requestId || randomUUID(),
@@ -1357,8 +1852,13 @@ async function persistLearning({ input, analysis, previousProfile }) {
 
   const timestamp = new Date().toISOString();
   const snippetId = randomUUID();
+  const existingProfile = withProfileDefaults(previousProfile);
+  const defaultExcluded = existingProfile.learningMode === "review";
   const slug = slugify(input.title || analysis.title);
-  const digestFile = path.join(DIGEST_DIR, `${safeTimestamp(timestamp)}-${slug}.md`);
+  const digestFile = path.join(
+    DIGEST_DIR,
+    `${safeTimestamp(timestamp)}-${slug}.md`,
+  );
   const snippetFile = path.join(SNIPPETS_DIR, `${snippetId}.json`);
   const digestMarkdown = buildDigestMarkdown({
     input,
@@ -1371,6 +1871,7 @@ async function persistLearning({ input, analysis, previousProfile }) {
     id: snippetId,
     createdAt: timestamp,
     updatedAt: timestamp,
+    profileExcluded: defaultExcluded,
     title: input.title || analysis.title,
     source: input.source,
     assetType: input.assetType || "code",
@@ -1394,40 +1895,70 @@ async function persistLearning({ input, analysis, previousProfile }) {
   };
 
   await writeFile(digestFile, digestMarkdown, "utf8");
-  await writeFile(MEMORY_FILE, analysis.updatedMemoryMarkdown.trim() + "\n", "utf8");
-  await writeFile(snippetFile, JSON.stringify(detailRecord, null, 2) + "\n", "utf8");
-
-  const existingLog = await readTextFile(LOG_FILE);
-  const logPrefix = existingLog.trim() || "# Learning Log";
-  const nextLog = [logPrefix, analysis.learningEntryMarkdown.trim()].filter(Boolean).join("\n\n---\n\n");
-  await writeFile(LOG_FILE, nextLog + "\n", "utf8");
+  await writeFile(
+    snippetFile,
+    JSON.stringify(detailRecord, null, 2) + "\n",
+    "utf8",
+  );
 
   const index = await loadSnippetIndex();
   const nextIndex = [buildIndexRecord(detailRecord), ...index];
-  await writeFile(INDEX_FILE, JSON.stringify(nextIndex, null, 2) + "\n", "utf8");
+  await writeFile(
+    INDEX_FILE,
+    JSON.stringify(nextIndex, null, 2) + "\n",
+    "utf8",
+  );
 
-  const profile = buildProfileSnapshot(nextIndex, previousProfile);
-  await writeFile(PROFILE_FILE, JSON.stringify(profile, null, 2) + "\n", "utf8");
+  const profile = {
+    ...buildProfileSnapshot(nextIndex, existingProfile),
+    lastProfileChange: defaultExcluded
+      ? existingProfile.lastProfileChange
+      : buildLastProfileChange(detailRecord, "included", timestamp),
+  };
+  await writeFile(
+    PROFILE_FILE,
+    JSON.stringify(profile, null, 2) + "\n",
+    "utf8",
+  );
+
+  let memoryMarkdown = await readTextFile(MEMORY_FILE);
+
+  if (!defaultExcluded) {
+    memoryMarkdown = analysis.updatedMemoryMarkdown.trim();
+    await writeFile(MEMORY_FILE, memoryMarkdown + "\n", "utf8");
+
+    const existingLog = await readTextFile(LOG_FILE);
+    const logPrefix = existingLog.trim() || "# Learning Log";
+    const nextLog = [logPrefix, analysis.learningEntryMarkdown.trim()]
+      .filter(Boolean)
+      .join("\n\n---\n\n");
+    await writeFile(LOG_FILE, nextLog + "\n", "utf8");
+  }
 
   const promptKitMarkdown = buildPromptKitMarkdown({
     profile,
-    memoryMarkdown: analysis.updatedMemoryMarkdown,
+    memoryMarkdown,
   });
   await writeFile(PROMPT_KIT_FILE, promptKitMarkdown, "utf8");
 
   const tasteContext = buildTasteContext({
     profile,
-    memoryMarkdown: analysis.updatedMemoryMarkdown,
+    memoryMarkdown,
     promptKitMarkdown,
   });
-  await writeFile(CONTEXT_FILE, JSON.stringify(tasteContext, null, 2) + "\n", "utf8");
+  await writeFile(
+    CONTEXT_FILE,
+    JSON.stringify(tasteContext, null, 2) + "\n",
+    "utf8",
+  );
 
   return {
     snippet: detailRecord,
     digestMarkdown,
-    memoryMarkdown: analysis.updatedMemoryMarkdown.trim(),
+    memoryMarkdown: memoryMarkdown.trim(),
     promptKitMarkdown,
     profile,
+    profileHistory: buildProfileHistory(nextIndex, profile),
     files: detailRecord.files,
   };
 }
@@ -1437,6 +1968,7 @@ function buildIndexRecord(detailRecord) {
     id: detailRecord.id,
     createdAt: detailRecord.createdAt,
     updatedAt: detailRecord.updatedAt,
+    profileExcluded: Boolean(detailRecord.profileExcluded),
     title: detailRecord.title,
     source: detailRecord.source,
     assetType: detailRecord.assetType,
@@ -1464,10 +1996,24 @@ function buildIndexRecord(detailRecord) {
   };
 }
 
+function normalizeSnippetIndexRecord(record) {
+  const safeRecord = record && typeof record === "object" ? record : {};
+
+  return {
+    ...safeRecord,
+    profileExcluded: Boolean(safeRecord.profileExcluded),
+  };
+}
+
 function buildDigestMarkdown({ input, analysis, timestamp, snippetId }) {
   const listSection = (title, items) => {
     const safeItems = items.length ? items : ["No items recorded."];
-    return [`## ${title}`, "", ...safeItems.map((item) => `- ${item}`), ""].join("\n");
+    return [
+      `## ${title}`,
+      "",
+      ...safeItems.map((item) => `- ${item}`),
+      "",
+    ].join("\n");
   };
 
   return [
@@ -1508,49 +2054,75 @@ function buildDigestMarkdown({ input, analysis, timestamp, snippetId }) {
     .join("\n");
 }
 
+function buildProfileSignals(index) {
+  return {
+    aiDigests: index.filter((item) => item.mode === "ai").length,
+    heuristicDigests: index.filter((item) => item.mode === "heuristic").length,
+    topLanguages: countTop(
+      index.map((item) => item.language),
+      5,
+    ),
+    topTags: countTop(
+      index.flatMap((item) => item.tags || []),
+      8,
+    ),
+    topPreferences: countTop(
+      index.flatMap((item) => item.inferredPreferences || []),
+      8,
+    ),
+    topPatterns: countTop(
+      index.flatMap((item) => item.reusablePatterns || []),
+      8,
+    ),
+    topDirectives: countTop(
+      index.flatMap((item) => item.buildDirectives || []),
+      8,
+    ),
+    topAvoid: countTop(
+      index.flatMap((item) => item.antiPatternsToAvoid || []),
+      8,
+    ),
+    topSources: countTop(index.map((item) => item.source).filter(Boolean), 5),
+  };
+}
+
 function buildProfileSnapshot(index, previousProfile) {
   const existingProfile = withProfileDefaults(previousProfile);
-  const topLanguages = countTop(index.map((item) => item.language), 5);
-  const topTags = countTop(index.flatMap((item) => item.tags || []), 8);
-  const topPreferences = countTop(index.flatMap((item) => item.inferredPreferences || []), 8);
-  const topPatterns = countTop(index.flatMap((item) => item.reusablePatterns || []), 8);
-  const topDirectives = countTop(index.flatMap((item) => item.buildDirectives || []), 8);
-  const topAvoid = countTop(index.flatMap((item) => item.antiPatternsToAvoid || []), 8);
-  const topSources = countTop(index.map((item) => item.source).filter(Boolean), 5);
-
-  const aiDigests = index.filter((item) => item.mode === "ai").length;
-  const heuristicDigests = index.filter((item) => item.mode === "heuristic").length;
+  const activeIndex = index.filter((item) => !item.profileExcluded);
+  const excludedDigests = index.length - activeIndex.length;
+  const signals = buildProfileSignals(activeIndex);
 
   return {
+    ...signals,
     generatedAt: new Date().toISOString(),
+    learningMode: existingProfile.learningMode,
+    lastProfileChange: existingProfile.lastProfileChange,
     totalDigests: index.length,
-    aiDigests,
-    heuristicDigests,
+    activeDigests: activeIndex.length,
+    excludedDigests,
     lastDigestedAt: index[0]?.createdAt || null,
-    topLanguages,
-    topTags,
-    topPreferences,
-    topPatterns,
-    topDirectives,
-    topAvoid,
-    topSources,
+    lastProfileSourceAt: activeIndex[0]?.createdAt || null,
     manualProfile: existingProfile.manualProfile,
     summary:
-      index.length === 0
+      activeIndex.length === 0
         ? buildProfileSummaryText({
             manualProfile: existingProfile.manualProfile,
-            topLanguages,
-            topTags,
-            topDirectives,
-            topAvoid,
+            topLanguages: signals.topLanguages,
+            topTags: signals.topTags,
+            topDirectives: signals.topDirectives,
+            topAvoid: signals.topAvoid,
             isEmpty: true,
+            totalDigests: index.length,
+            excludedDigests,
           })
         : buildProfileSummaryText({
             manualProfile: existingProfile.manualProfile,
-            topLanguages,
-            topTags,
-            topDirectives,
-            topAvoid,
+            topLanguages: signals.topLanguages,
+            topTags: signals.topTags,
+            topDirectives: signals.topDirectives,
+            topAvoid: signals.topAvoid,
+            totalDigests: index.length,
+            excludedDigests,
           }),
   };
 }
@@ -1562,21 +2134,454 @@ function buildProfileSummaryText({
   topDirectives,
   topAvoid,
   isEmpty = false,
+  totalDigests = 0,
+  excludedDigests = 0,
 }) {
   const manualSummary = buildManualProfileSummary(manualProfile);
   const languageLead = topLanguages[0]?.value || "mixed languages";
-  const tagLead = topTags.slice(0, 3).map((item) => item.value).join(", ") || "broad interests";
-  const directiveLead = topDirectives[0]?.value || "favor explicit, legible code";
+  const tagLead =
+    topTags
+      .slice(0, 3)
+      .map((item) => item.value)
+      .join(", ") || "broad interests";
+  const directiveLead =
+    topDirectives[0]?.value || "favor explicit, legible code";
   const avoidLead = topAvoid[0]?.value || "avoid over-complexity";
 
   if (isEmpty) {
+    if (totalDigests > 0 && excludedDigests >= totalDigests) {
+      return manualSummary
+        ? `${manualSummary} All saved sources are currently excluded from the learned profile.`
+        : "All saved sources are currently excluded from the learned profile.";
+    }
+
     return manualSummary
       ? `${manualSummary} No sources digested yet.`
       : "No sources digested yet.";
   }
 
   const learnedSummary = `Profile currently leans toward ${languageLead}, with strong evidence in ${tagLead}. The clearest build directive is "${directiveLead}". Current avoid signal: "${avoidLead}".`;
-  return [manualSummary, learnedSummary].filter(Boolean).join(" ");
+  const managementNote = excludedDigests
+    ? `${excludedDigests} saved source${excludedDigests === 1 ? "" : "s"} currently do not shape the profile.`
+    : "";
+  return [manualSummary, learnedSummary, managementNote]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function buildProfileHistory(index, profile) {
+  const safeProfile = withProfileDefaults(profile);
+  const activeIndex = index.filter((item) => !item.profileExcluded);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    totalDigests: index.length,
+    activeDigests: activeIndex.length,
+    excludedDigests: index.length - activeIndex.length,
+    windows: {
+      all: buildProfileHistoryWindow(activeIndex, safeProfile.manualProfile),
+      30: buildProfileHistoryWindow(activeIndex, safeProfile.manualProfile, 30),
+      7: buildProfileHistoryWindow(activeIndex, safeProfile.manualProfile, 7),
+    },
+    timeline: buildProfileTimeline(activeIndex, safeProfile.manualProfile),
+  };
+}
+
+function buildProfileHistoryWindow(index, manualProfile, days = null) {
+  const currentItems = filterProfileItemsByWindow(index, days);
+  const previousItems = filterPreviousProfileWindow(index, days);
+  const signals = buildProfileSignals(currentItems);
+
+  return {
+    label: days ? `Last ${days} days` : "All time",
+    days,
+    activeDigests: currentItems.length,
+    topLanguages: signals.topLanguages,
+    topTags: signals.topTags,
+    topDirectives: signals.topDirectives,
+    topPreferences: signals.topPreferences,
+    summary: buildProfileSummaryText({
+      manualProfile,
+      topLanguages: signals.topLanguages,
+      topTags: signals.topTags,
+      topDirectives: signals.topDirectives,
+      topAvoid: signals.topAvoid,
+      isEmpty: currentItems.length === 0,
+      totalDigests: currentItems.length,
+      excludedDigests: 0,
+    }),
+    shiftSummary: buildProfileShiftSummary(currentItems, previousItems),
+    recentSources: currentItems.slice(0, 6).map(buildProfileKnowledgeRecord),
+  };
+}
+
+function buildProfileTimeline(index, manualProfile) {
+  const chronological = [...index].sort(
+    (left, right) =>
+      new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+  );
+
+  return chronological.map((item, position) => {
+    const slice = chronological.slice(0, position + 1);
+    const previousSlice = chronological.slice(0, position);
+    const signals = buildProfileSignals(slice);
+    const previousSignals = buildProfileSignals(previousSlice);
+    const summary = buildProfileSummaryText({
+      manualProfile,
+      topLanguages: signals.topLanguages,
+      topTags: signals.topTags,
+      topDirectives: signals.topDirectives,
+      topAvoid: signals.topAvoid,
+      isEmpty: slice.length === 0,
+      totalDigests: slice.length,
+      excludedDigests: 0,
+    });
+    const changes = buildProfileTimelineChanges({
+      item,
+      currentSignals: signals,
+      previousSignals,
+      previousSlice,
+    });
+
+    return {
+      id: item.id,
+      index: position + 1,
+      createdAt: item.createdAt,
+      title: item.title,
+      sourceKind: item.sourceKind,
+      language: item.language,
+      artifactSummary: item.summary,
+      activeDigests: slice.length,
+      topLanguage: signals.topLanguages[0]?.value || "None yet",
+      topTag: signals.topTags[0]?.value || "No tag signal yet",
+      topDirective:
+        signals.topDirectives[0]?.value || "Collect more active sources.",
+      summary,
+      profileSnapshot: {
+        summary,
+        topLanguages: signals.topLanguages,
+        topTags: signals.topTags,
+        topPreferences: signals.topPreferences,
+        topDirectives: signals.topDirectives,
+        topPatterns: signals.topPatterns,
+        topAvoid: signals.topAvoid,
+      },
+      sourceSignals: {
+        tags: (item.tags || []).slice(0, 4),
+        directives: (item.buildDirectives || []).slice(0, 3),
+        preferences: (item.inferredPreferences || []).slice(0, 3),
+        patterns: (item.reusablePatterns || []).slice(0, 2),
+        avoid: (item.antiPatternsToAvoid || []).slice(0, 2),
+      },
+      changes,
+      impactScores: {
+        character: clamp(changes.character.length, 1, 10),
+        preferences: clamp(changes.preferences.length, 1, 10),
+        skillset: clamp(changes.skillset.length, 1, 10),
+      },
+    };
+  });
+}
+
+function buildProfileTimelineChanges({
+  item,
+  currentSignals,
+  previousSignals,
+  previousSlice,
+}) {
+  const previousLanguageValues = new Set(
+    previousSlice.map((entry) => entry.language),
+  );
+  const previousTagValues = buildValueCountMap(
+    previousSlice.flatMap((entry) => entry.tags || []),
+  );
+  const previousPreferenceValues = buildValueCountMap(
+    previousSlice.flatMap((entry) => entry.inferredPreferences || []),
+  );
+  const previousDirectiveValues = buildValueCountMap(
+    previousSlice.flatMap((entry) => entry.buildDirectives || []),
+  );
+  const previousPatternValues = buildValueCountMap(
+    previousSlice.flatMap((entry) => entry.reusablePatterns || []),
+  );
+  const previousAvoidValues = buildValueCountMap(
+    previousSlice.flatMap((entry) => entry.antiPatternsToAvoid || []),
+  );
+
+  const character = [];
+  const preferences = [];
+  const skillset = [];
+  const currentTopTag = currentSignals.topTags[0]?.value || "";
+  const previousTopTag = previousSignals.topTags[0]?.value || "";
+  const currentTopDirective = currentSignals.topDirectives[0]?.value || "";
+  const previousTopDirective = previousSignals.topDirectives[0]?.value || "";
+  const currentTopPreference = currentSignals.topPreferences[0]?.value || "";
+  const previousTopPreference = previousSignals.topPreferences[0]?.value || "";
+  const currentTopLanguage = currentSignals.topLanguages[0]?.value || "";
+  const previousTopLanguage = previousSignals.topLanguages[0]?.value || "";
+
+  if (!previousSlice.length) {
+    character.push(
+      "This digest established the first active character signal.",
+    );
+    preferences.push(
+      "This digest established the first active preference signal.",
+    );
+    skillset.push("This digest established the first active skill signal.");
+  }
+
+  if (currentTopTag && previousTopTag && currentTopTag !== previousTopTag) {
+    character.push(
+      `Lead interest moved from ${previousTopTag} to ${currentTopTag}.`,
+    );
+  }
+
+  if (
+    currentTopDirective &&
+    previousTopDirective &&
+    currentTopDirective !== previousTopDirective
+  ) {
+    character.push(
+      `Leading directive shifted to "${trimServerText(currentTopDirective, 96)}".`,
+    );
+  }
+
+  const newTags = (item.tags || []).filter(
+    (value) => !previousTagValues.has(value),
+  );
+  if (newTags.length) {
+    character.push(
+      `Introduced ${newTags.slice(0, 2).join(" and ")} into the profile character.`,
+    );
+  }
+
+  const newAvoid = (item.antiPatternsToAvoid || []).filter(
+    (value) => !previousAvoidValues.has(value),
+  );
+  if (newAvoid.length) {
+    character.push(
+      `Added a new caution: "${trimServerText(newAvoid[0], 96)}".`,
+    );
+  }
+
+  if (currentTopPreference && currentTopPreference !== previousTopPreference) {
+    preferences.push(
+      `Preference emphasis moved toward "${trimServerText(currentTopPreference, 96)}".`,
+    );
+  }
+
+  const newPreferences = (item.inferredPreferences || []).filter(
+    (value) => !previousPreferenceValues.has(value),
+  );
+  if (newPreferences.length) {
+    preferences.push(
+      `New preference signal: "${trimServerText(newPreferences[0], 96)}".`,
+    );
+  }
+
+  const newPatterns = (item.reusablePatterns || []).filter(
+    (value) => !previousPatternValues.has(value),
+  );
+  if (newPatterns.length) {
+    preferences.push(
+      `Pattern added to memory: "${trimServerText(newPatterns[0], 96)}".`,
+    );
+  }
+
+  const newDirectives = (item.buildDirectives || []).filter(
+    (value) => !previousDirectiveValues.has(value),
+  );
+  if (newDirectives.length) {
+    preferences.push(
+      `Directive added: "${trimServerText(newDirectives[0], 96)}".`,
+    );
+  }
+
+  if (currentTopLanguage && currentTopLanguage !== previousTopLanguage) {
+    skillset.push(
+      `Top language shifted from ${previousTopLanguage || "none"} to ${currentTopLanguage}.`,
+    );
+  }
+
+  if (item.language && !previousLanguageValues.has(item.language)) {
+    skillset.push(`Introduced ${item.language} into the active skillset.`);
+  }
+
+  const newSkillTags = (item.tags || []).filter(
+    (value) =>
+      !previousTagValues.has(value) &&
+      [
+        "frontend",
+        "backend",
+        "business-logic",
+        "database",
+        "api",
+        "state-management",
+        "authentication",
+        "testing",
+        "devops",
+        "data-processing",
+        "architecture",
+        "performance",
+        "security",
+      ].includes(value),
+  );
+  if (newSkillTags.length) {
+    skillset.push(
+      `Expanded technical coverage into ${newSkillTags.slice(0, 2).join(" and ")}.`,
+    );
+  }
+
+  if (!character.length) {
+    character.push(
+      `Reinforced ${(item.tags || []).slice(0, 2).join(" and ") || currentTopTag || "the current profile direction"}.`,
+    );
+  }
+
+  if (!preferences.length) {
+    preferences.push(
+      `Reinforced "${trimServerText((item.inferredPreferences || [])[0] || currentTopPreference || "the current preference direction", 96)}".`,
+    );
+  }
+
+  if (!skillset.length) {
+    skillset.push(
+      `Reinforced ${item.language || currentTopLanguage || "the current skillset"} signals.`,
+    );
+  }
+
+  return {
+    character: character.slice(0, 4),
+    preferences: preferences.slice(0, 4),
+    skillset: skillset.slice(0, 4),
+  };
+}
+
+function buildValueCountMap(values) {
+  const map = new Map();
+
+  for (const value of values) {
+    const safeValue = String(value || "").trim();
+
+    if (!safeValue) {
+      continue;
+    }
+
+    map.set(safeValue, (map.get(safeValue) || 0) + 1);
+  }
+
+  return map;
+}
+
+function buildProfileShiftSummary(currentItems, previousItems) {
+  if (!currentItems.length) {
+    return "No active profile sources in this window.";
+  }
+
+  if (!previousItems.length) {
+    return currentItems.length === 1
+      ? "Baseline formed from the first active source in this window."
+      : "Baseline forming from the current active sources.";
+  }
+
+  const currentSignals = buildProfileSignals(currentItems);
+  const previousSignals = buildProfileSignals(previousItems);
+  const currentLanguage = currentSignals.topLanguages[0]?.value || "";
+  const previousLanguage = previousSignals.topLanguages[0]?.value || "";
+  const currentTag = currentSignals.topTags[0]?.value || "";
+  const previousTag = previousSignals.topTags[0]?.value || "";
+  const currentDirective = currentSignals.topDirectives[0]?.value || "";
+  const previousDirective = previousSignals.topDirectives[0]?.value || "";
+
+  if (
+    currentLanguage &&
+    previousLanguage &&
+    currentLanguage !== previousLanguage
+  ) {
+    return `Language focus moved from ${previousLanguage} to ${currentLanguage}.`;
+  }
+
+  if (currentTag && previousTag && currentTag !== previousTag) {
+    return `Interest shifted from ${previousTag} toward ${currentTag}.`;
+  }
+
+  if (
+    currentDirective &&
+    previousDirective &&
+    currentDirective !== previousDirective
+  ) {
+    return `The leading build directive changed from "${previousDirective}" to "${currentDirective}".`;
+  }
+
+  const risingSignals = findProfileSignalDeltas(
+    currentSignals.topTags,
+    previousSignals.topTags,
+  ).slice(0, 2);
+
+  if (risingSignals.length) {
+    return `Current window reinforces ${currentLanguage || "the active profile"} with stronger ${risingSignals.map((item) => item.value).join(" and ")} signals.`;
+  }
+
+  return `Current window mostly reinforces the existing profile direction around ${currentLanguage || "mixed inputs"} and ${currentTag || "broad interests"}.`;
+}
+
+function buildProfileKnowledgeRecord(item) {
+  return {
+    id: item.id,
+    title: item.title,
+    createdAt: item.createdAt,
+    language: item.language,
+    sourceKind: item.sourceKind,
+    summary: item.summary,
+    tags: (item.tags || []).slice(0, 4),
+    directives: (item.buildDirectives || []).slice(0, 2),
+    preferences: (item.inferredPreferences || []).slice(0, 2),
+    profileExcluded: Boolean(item.profileExcluded),
+  };
+}
+
+function filterProfileItemsByWindow(index, days = null) {
+  if (!days) {
+    return index;
+  }
+
+  const threshold = Date.now() - days * 24 * 60 * 60 * 1000;
+  return index.filter(
+    (item) => new Date(item.createdAt).getTime() >= threshold,
+  );
+}
+
+function filterPreviousProfileWindow(index, days = null) {
+  if (!days) {
+    const midpoint = Math.floor(index.length / 2);
+    return midpoint > 0 ? index.slice(midpoint) : [];
+  }
+
+  const now = Date.now();
+  const currentThreshold = now - days * 24 * 60 * 60 * 1000;
+  const previousThreshold = now - days * 2 * 24 * 60 * 60 * 1000;
+
+  return index.filter((item) => {
+    const createdAt = new Date(item.createdAt).getTime();
+    return createdAt < currentThreshold && createdAt >= previousThreshold;
+  });
+}
+
+function findProfileSignalDeltas(currentItems, previousItems) {
+  const previousCounts = new Map(
+    previousItems.map((item) => [item.value, item.count]),
+  );
+
+  return currentItems
+    .map((item) => ({
+      value: item.value,
+      delta: item.count - (previousCounts.get(item.value) || 0),
+    }))
+    .filter((item) => item.delta > 0)
+    .sort(
+      (left, right) =>
+        right.delta - left.delta || left.value.localeCompare(right.value),
+    );
 }
 
 function buildPromptKitMarkdown({ profile, memoryMarkdown }) {
@@ -1603,10 +2608,17 @@ function buildPromptKitMarkdown({ profile, memoryMarkdown }) {
     "Use this file when generating code, shaping product decisions, or evaluating whether a solution matches the developer's taste.",
     "",
     "## Manual Profile",
-    ...(manualProfileLines.length ? manualProfileLines : ["- No manual profile configured."]),
+    ...(manualProfileLines.length
+      ? manualProfileLines
+      : ["- No manual profile configured."]),
     "",
     "## Snapshot",
+    `- Learning mode: ${
+      safeProfile.learningMode === "review" ? "Review first" : "Auto shape"
+    }`,
     `- Total digests: ${safeProfile.totalDigests}`,
+    `- Active profile sources: ${safeProfile.activeDigests}`,
+    `- Excluded from profile: ${safeProfile.excludedDigests}`,
     `- AI digests: ${safeProfile.aiDigests}`,
     `- Heuristic digests: ${safeProfile.heuristicDigests}`,
     `- Top languages: ${topLanguages}`,
@@ -1633,6 +2645,7 @@ function buildTasteContext({ profile, memoryMarkdown, promptKitMarkdown }) {
   return {
     generatedAt: new Date().toISOString(),
     profile: safeProfile,
+    learningMode: safeProfile.learningMode,
     manualProfile: safeProfile.manualProfile,
     manualSummary: buildManualProfileSummary(safeProfile.manualProfile),
     memoryExcerpt: trimMarkdown(memoryMarkdown, 30),
@@ -1661,14 +2674,19 @@ function buildFallbackBlueprint({
     safeContext.summary
       ? `Anchor this plan to the selected context: ${safeContext.summary}`
       : "",
-    profile.topPreferences[0]?.value || "Keep the implementation explicit and grounded.",
-    profile.topPatterns[0]?.value || "Prefer patterns the tool has already seen repeatedly.",
+    profile.topPreferences[0]?.value ||
+      "Keep the implementation explicit and grounded.",
+    profile.topPatterns[0]?.value ||
+      "Prefer patterns the tool has already seen repeatedly.",
   ].filter(Boolean);
 
   const experiencePrinciples = [
-    profile.topDirectives[0]?.value || "Make the core flow obvious on first read.",
-    profile.topDirectives[1]?.value || "Keep architecture legible at the boundaries.",
-    profile.topPreferences[0]?.value || "Bias toward explicit contracts and named responsibilities.",
+    profile.topDirectives[0]?.value ||
+      "Make the core flow obvious on first read.",
+    profile.topDirectives[1]?.value ||
+      "Keep architecture legible at the boundaries.",
+    profile.topPreferences[0]?.value ||
+      "Bias toward explicit contracts and named responsibilities.",
     safeContext.directives[0]
       ? `Carry this context cue forward: ${safeContext.directives[0]}`
       : "",
@@ -1696,7 +2714,9 @@ function buildFallbackBlueprint({
     "Persist the minimum data needed to make the first version useful.",
     "Expose clear state, history, or artifacts so the system stays inspectable.",
     "Add one quality feature that reflects the learned taste profile instead of shipping a bland shell.",
-    refinement ? `Apply this refinement while keeping scope controlled: ${refinement}` : "",
+    refinement
+      ? `Apply this refinement while keeping scope controlled: ${refinement}`
+      : "",
   ];
 
   const buildOrder = [
@@ -1704,14 +2724,18 @@ function buildFallbackBlueprint({
     "Build the smallest useful end-to-end flow.",
     "Add the UI or interaction layer with explicit states.",
     "Refine naming, structure, and test coverage where the product matters most.",
-    safeContext.title ? `Re-check the output against ${safeContext.title} before expanding scope.` : "",
+    safeContext.title
+      ? `Re-check the output against ${safeContext.title} before expanding scope.`
+      : "",
   ];
 
   const guardrails = uniqStrings([
     ...profile.topAvoid.slice(0, 5).map((item) => item.value),
     constraints ? `Respect this constraint: ${constraints}` : "",
     refinement ? `Refinement request: ${refinement}` : "",
-    ...safeContext.directives.slice(0, 3).map((item) => `Context directive: ${item}`),
+    ...safeContext.directives
+      .slice(0, 3)
+      .map((item) => `Context directive: ${item}`),
     error instanceof Error ? `AI fallback reason: ${error.message}` : "",
   ]).filter(Boolean);
 
@@ -1723,7 +2747,9 @@ function buildFallbackBlueprint({
     safeContext.summary ? `Context summary: ${safeContext.summary}` : "",
     "Follow these build directives:",
     ...profile.topDirectives.slice(0, 5).map((item) => `- ${item.value}`),
-    ...safeContext.directives.slice(0, 3).map((item) => `- Context cue: ${item}`),
+    ...safeContext.directives
+      .slice(0, 3)
+      .map((item) => `- Context cue: ${item}`),
     "Avoid these signals:",
     ...profile.topAvoid.slice(0, 5).map((item) => `- ${item.value}`),
     constraints ? `Constraints: ${constraints}` : "",
@@ -1732,10 +2758,20 @@ function buildFallbackBlueprint({
     "Use the following taste memory excerpt as grounding:",
     trimMarkdown(promptKitMarkdown || memoryMarkdown, 24),
     safeContext.digestMarkdown
-      ? ["", "Selected context digest excerpt:", trimMarkdown(safeContext.digestMarkdown, 20)].join("\n")
+      ? [
+          "",
+          "Selected context digest excerpt:",
+          trimMarkdown(safeContext.digestMarkdown, 20),
+        ].join("\n")
       : "",
     safeContext.codeExcerpt
-      ? ["", "Selected context code excerpt:", "```text", safeContext.codeExcerpt, "```"].join("\n")
+      ? [
+          "",
+          "Selected context code excerpt:",
+          "```text",
+          safeContext.codeExcerpt,
+          "```",
+        ].join("\n")
       : "",
   ]
     .filter(Boolean)
@@ -1746,7 +2782,8 @@ function buildFallbackBlueprint({
     thesis: safeContext.title
       ? `A taste-aligned implementation of ${idea} shaped by the developer's saved code preferences and grounded in ${safeContext.title}.`
       : `A taste-aligned implementation of ${idea} shaped by the developer's saved code preferences.`,
-    audience: "The primary users implied by the product idea and the developer's implementation taste.",
+    audience:
+      "The primary users implied by the product idea and the developer's implementation taste.",
     tasteAlignment,
     experiencePrinciples,
     architectureDirection,
@@ -1782,16 +2819,24 @@ function normalizeBlueprint(blueprint) {
 
 function pickRecommendedStack(profile) {
   const safeProfile = withProfileDefaults(profile);
-  const preferredStack = parsePreferredStack(safeProfile.manualProfile.preferredStack);
+  const preferredStack = parsePreferredStack(
+    safeProfile.manualProfile.preferredStack,
+  );
 
   if (preferredStack.length) {
     return preferredStack;
   }
 
-  const languages = safeProfile.topLanguages.map((item) => item.value.toLowerCase());
+  const languages = safeProfile.topLanguages.map((item) =>
+    item.value.toLowerCase(),
+  );
   const tags = safeProfile.topTags.map((item) => item.value);
 
-  if (languages.some((item) => item.includes("typescript") || item.includes("tsx"))) {
+  if (
+    languages.some(
+      (item) => item.includes("typescript") || item.includes("tsx"),
+    )
+  ) {
     return tags.includes("frontend")
       ? ["TypeScript", "React", "Node.js"]
       : ["TypeScript", "Node.js", "Postgres"];
@@ -1815,11 +2860,13 @@ function pickRecommendedStack(profile) {
 }
 
 async function loadSnippetIndex() {
-  return readJsonFile(INDEX_FILE, []);
+  const index = await readJsonFile(INDEX_FILE, []);
+  return (Array.isArray(index) ? index : []).map(normalizeSnippetIndexRecord);
 }
 
 async function serveStaticAsset(pathname, response) {
-  const safePath = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
+  const safePath =
+    pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
   const resolvedPath = path.join(PUBLIC_DIR, path.normalize(safePath));
 
   if (!resolvedPath.startsWith(PUBLIC_DIR)) {
@@ -1878,7 +2925,11 @@ async function ensureDataDirectories() {
 
   const memory = await readTextFile(MEMORY_FILE);
   if (!memory) {
-    await writeFile(MEMORY_FILE, "# Developer Taste Memory\n\nNo sources digested yet.\n", "utf8");
+    await writeFile(
+      MEMORY_FILE,
+      "# Developer Taste Memory\n\nNo sources digested yet.\n",
+      "utf8",
+    );
   }
 
   const log = await readTextFile(LOG_FILE);
@@ -1906,7 +2957,8 @@ async function ensureDataDirectories() {
       PROMPT_KIT_FILE,
       buildPromptKitMarkdown({
         profile: buildDefaultProfile(),
-        memoryMarkdown: "# Developer Taste Memory\n\nNo sources digested yet.\n",
+        memoryMarkdown:
+          "# Developer Taste Memory\n\nNo sources digested yet.\n",
       }),
       "utf8",
     );
@@ -1919,7 +2971,8 @@ async function ensureDataDirectories() {
       JSON.stringify(
         buildTasteContext({
           profile: buildDefaultProfile(),
-          memoryMarkdown: "# Developer Taste Memory\n\nNo sources digested yet.\n",
+          memoryMarkdown:
+            "# Developer Taste Memory\n\nNo sources digested yet.\n",
           promptKitMarkdown: await readTextFile(PROMPT_KIT_FILE),
         }),
         null,
@@ -1933,10 +2986,15 @@ async function ensureDataDirectories() {
 function buildDefaultProfile() {
   return {
     generatedAt: new Date().toISOString(),
+    learningMode: "auto",
+    lastProfileChange: null,
     totalDigests: 0,
+    activeDigests: 0,
+    excludedDigests: 0,
     aiDigests: 0,
     heuristicDigests: 0,
     lastDigestedAt: null,
+    lastProfileSourceAt: null,
     topLanguages: [],
     topTags: [],
     topPreferences: [],
@@ -1967,9 +3025,16 @@ function withProfileDefaults(profile) {
   return {
     ...buildDefaultProfile(),
     ...safeProfile,
+    learningMode: normalizeLearningMode(safeProfile.learningMode),
+    lastProfileChange: normalizeLastProfileChange(
+      safeProfile.lastProfileChange,
+    ),
     totalDigests: toNonNegativeInteger(safeProfile.totalDigests),
+    activeDigests: toNonNegativeInteger(safeProfile.activeDigests),
+    excludedDigests: toNonNegativeInteger(safeProfile.excludedDigests),
     aiDigests: toNonNegativeInteger(safeProfile.aiDigests),
     heuristicDigests: toNonNegativeInteger(safeProfile.heuristicDigests),
+    lastProfileSourceAt: safeProfile.lastProfileSourceAt || null,
     topLanguages: normalizeCountItems(safeProfile.topLanguages),
     topTags: normalizeCountItems(safeProfile.topTags),
     topPreferences: normalizeCountItems(safeProfile.topPreferences),
@@ -1977,9 +3042,50 @@ function withProfileDefaults(profile) {
     topDirectives: normalizeCountItems(safeProfile.topDirectives),
     topAvoid: normalizeCountItems(safeProfile.topAvoid),
     topSources: normalizeCountItems(safeProfile.topSources),
-    summary: normalizeText(safeProfile.summary, 1600) || "No sources digested yet.",
+    summary:
+      normalizeText(safeProfile.summary, 1600) || "No sources digested yet.",
     manualProfile: normalizeManualProfile(safeProfile.manualProfile),
   };
+}
+
+function normalizeLearningMode(value) {
+  return value === "review" ? "review" : "auto";
+}
+
+function normalizeLastProfileChange(value) {
+  const safeValue = value && typeof value === "object" ? value : null;
+
+  if (!safeValue?.snippetId || !safeValue?.timestamp) {
+    return null;
+  }
+
+  return {
+    snippetId: normalizeText(safeValue.snippetId, 120),
+    title: normalizeText(safeValue.title, 160) || "Untitled analysis",
+    action: safeValue.action === "excluded" ? "excluded" : "included",
+    undoExcluded: Boolean(safeValue.undoExcluded),
+    timestamp: safeValue.timestamp,
+    sourceKind: normalizeText(safeValue.sourceKind, 32) || "code",
+    language: normalizeText(safeValue.language, 48) || "Unknown",
+    summary: normalizeText(safeValue.summary, 220),
+  };
+}
+
+function buildLastProfileChange(
+  item,
+  action,
+  timestamp = new Date().toISOString(),
+) {
+  return normalizeLastProfileChange({
+    snippetId: item?.id,
+    title: item?.title,
+    action,
+    undoExcluded: action !== "excluded",
+    timestamp,
+    sourceKind: item?.sourceKind,
+    language: item?.language,
+    summary: item?.summary,
+  });
 }
 
 function normalizeManualProfile(profile) {
@@ -2017,6 +3123,10 @@ async function updateManualProfile(body) {
   const existingProfile = withProfileDefaults(
     await readJsonFile(PROFILE_FILE, buildDefaultProfile()),
   );
+  const nextLearningMode =
+    body && Object.prototype.hasOwnProperty.call(body, "learningMode")
+      ? normalizeLearningMode(body.learningMode)
+      : existingProfile.learningMode;
   const nextManualProfile = {
     ...existingProfile.manualProfile,
     ...normalizeManualProfile(body.manualProfile || body),
@@ -2024,6 +3134,8 @@ async function updateManualProfile(body) {
   const nextProfile = {
     ...existingProfile,
     generatedAt: new Date().toISOString(),
+    learningMode: nextLearningMode,
+    lastProfileChange: existingProfile.lastProfileChange,
     manualProfile: nextManualProfile,
     summary: buildProfileSummaryText({
       manualProfile: nextManualProfile,
@@ -2046,15 +3158,203 @@ async function updateManualProfile(body) {
   });
   const index = await loadSnippetIndex();
 
-  await writeFile(PROFILE_FILE, JSON.stringify(nextProfile, null, 2) + "\n", "utf8");
+  await writeFile(
+    PROFILE_FILE,
+    JSON.stringify(nextProfile, null, 2) + "\n",
+    "utf8",
+  );
   await writeFile(PROMPT_KIT_FILE, promptKitMarkdown, "utf8");
-  await writeFile(CONTEXT_FILE, JSON.stringify(tasteContext, null, 2) + "\n", "utf8");
+  await writeFile(
+    CONTEXT_FILE,
+    JSON.stringify(tasteContext, null, 2) + "\n",
+    "utf8",
+  );
 
   return {
     profile: nextProfile,
     promptKitMarkdown,
     memoryMarkdown,
+    profileHistory: buildProfileHistory(index, nextProfile),
     recentDigests: index.slice(0, 12),
+  };
+}
+
+async function updateSnippetProfileInclusion(snippetId, body) {
+  await ensureDataDirectories();
+
+  const excluded = Boolean(body?.excluded);
+  const snippetPath = path.join(SNIPPETS_DIR, `${snippetId}.json`);
+  const existingDetail = await readJsonFile(snippetPath, null);
+
+  if (!existingDetail) {
+    throw new Error("Snippet not found.");
+  }
+
+  const index = await loadSnippetIndex();
+  const recordIndex = index.findIndex((item) => item.id === snippetId);
+
+  if (recordIndex === -1) {
+    throw new Error("Snippet not found.");
+  }
+
+  const updatedAt = new Date().toISOString();
+  const nextDetail = {
+    ...existingDetail,
+    profileExcluded: excluded,
+    updatedAt,
+  };
+  const nextIndex = index.map((item) =>
+    item.id === snippetId
+      ? {
+          ...item,
+          profileExcluded: excluded,
+          updatedAt,
+        }
+      : item,
+  );
+  const existingProfile = withProfileDefaults(
+    await readJsonFile(PROFILE_FILE, buildDefaultProfile()),
+  );
+  const nextProfile = {
+    ...buildProfileSnapshot(nextIndex, existingProfile),
+    lastProfileChange: buildLastProfileChange(
+      nextIndex[recordIndex],
+      excluded ? "excluded" : "included",
+      updatedAt,
+    ),
+  };
+  const memoryMarkdown = await readTextFile(MEMORY_FILE);
+  const promptKitMarkdown = buildPromptKitMarkdown({
+    profile: nextProfile,
+    memoryMarkdown,
+  });
+  const tasteContext = buildTasteContext({
+    profile: nextProfile,
+    memoryMarkdown,
+    promptKitMarkdown,
+  });
+
+  await writeFile(
+    snippetPath,
+    JSON.stringify(nextDetail, null, 2) + "\n",
+    "utf8",
+  );
+  await writeFile(
+    INDEX_FILE,
+    JSON.stringify(nextIndex, null, 2) + "\n",
+    "utf8",
+  );
+  await writeFile(
+    PROFILE_FILE,
+    JSON.stringify(nextProfile, null, 2) + "\n",
+    "utf8",
+  );
+  await writeFile(PROMPT_KIT_FILE, promptKitMarkdown, "utf8");
+  await writeFile(
+    CONTEXT_FILE,
+    JSON.stringify(tasteContext, null, 2) + "\n",
+    "utf8",
+  );
+
+  return {
+    profile: nextProfile,
+    promptKitMarkdown,
+    memoryMarkdown,
+    profileHistory: buildProfileHistory(nextIndex, nextProfile),
+    recentDigests: nextIndex.slice(0, 12),
+    snippetId,
+    excluded,
+  };
+}
+
+async function undoLastProfileChange() {
+  await ensureDataDirectories();
+
+  const existingProfile = withProfileDefaults(
+    await readJsonFile(PROFILE_FILE, buildDefaultProfile()),
+  );
+  const lastChange = existingProfile.lastProfileChange;
+
+  if (!lastChange?.snippetId) {
+    throw new Error("No profile change available to undo.");
+  }
+
+  const snippetId = lastChange.snippetId;
+  const snippetPath = path.join(SNIPPETS_DIR, `${snippetId}.json`);
+  const existingDetail = await readJsonFile(snippetPath, null);
+
+  if (!existingDetail) {
+    throw new Error("Snippet not found.");
+  }
+
+  const index = await loadSnippetIndex();
+  const recordIndex = index.findIndex((item) => item.id === snippetId);
+
+  if (recordIndex === -1) {
+    throw new Error("Snippet not found.");
+  }
+
+  const updatedAt = new Date().toISOString();
+  const excluded = Boolean(lastChange.undoExcluded);
+  const nextDetail = {
+    ...existingDetail,
+    profileExcluded: excluded,
+    updatedAt,
+  };
+  const nextIndex = index.map((item) =>
+    item.id === snippetId
+      ? {
+          ...item,
+          profileExcluded: excluded,
+          updatedAt,
+        }
+      : item,
+  );
+  const nextProfile = {
+    ...buildProfileSnapshot(nextIndex, existingProfile),
+    lastProfileChange: null,
+  };
+  const memoryMarkdown = await readTextFile(MEMORY_FILE);
+  const promptKitMarkdown = buildPromptKitMarkdown({
+    profile: nextProfile,
+    memoryMarkdown,
+  });
+  const tasteContext = buildTasteContext({
+    profile: nextProfile,
+    memoryMarkdown,
+    promptKitMarkdown,
+  });
+
+  await writeFile(
+    snippetPath,
+    JSON.stringify(nextDetail, null, 2) + "\n",
+    "utf8",
+  );
+  await writeFile(
+    INDEX_FILE,
+    JSON.stringify(nextIndex, null, 2) + "\n",
+    "utf8",
+  );
+  await writeFile(
+    PROFILE_FILE,
+    JSON.stringify(nextProfile, null, 2) + "\n",
+    "utf8",
+  );
+  await writeFile(PROMPT_KIT_FILE, promptKitMarkdown, "utf8");
+  await writeFile(
+    CONTEXT_FILE,
+    JSON.stringify(tasteContext, null, 2) + "\n",
+    "utf8",
+  );
+
+  return {
+    profile: nextProfile,
+    promptKitMarkdown,
+    memoryMarkdown,
+    profileHistory: buildProfileHistory(nextIndex, nextProfile),
+    recentDigests: nextIndex.slice(0, 12),
+    snippetId,
+    excluded,
   };
 }
 
@@ -2111,7 +3411,9 @@ function highlightEditorCode({ code, language }) {
 }
 
 function pickPrettierParser(language, code) {
-  const normalized = normalizeFormatLanguage(language) || normalizeFormatLanguage(inferEditorLanguage(code));
+  const normalized =
+    normalizeFormatLanguage(language) ||
+    normalizeFormatLanguage(inferEditorLanguage(code));
 
   if (!normalized) {
     return null;
@@ -2158,20 +3460,20 @@ function normalizeFormatLanguage(language) {
 
   const aliasMap = {
     "tsx / react": "tsx",
-    "typescript": "typescript",
+    typescript: "typescript",
     "typescript react": "tsx",
-    "javascript": "javascript",
+    javascript: "javascript",
     "jsx / react": "jsx",
-    "jsx": "jsx",
-    "python": "python",
-    "go": "go",
-    "rust": "rust",
-    "sql": "sql",
-    "css": "css",
-    "html": "html",
-    "markdown": "markdown",
-    "json": "json",
-    "yaml": "yaml",
+    jsx: "jsx",
+    python: "python",
+    go: "go",
+    rust: "rust",
+    sql: "sql",
+    css: "css",
+    html: "html",
+    markdown: "markdown",
+    json: "json",
+    yaml: "yaml",
   };
 
   return aliasMap[safeLanguage] || safeLanguage;
@@ -2202,7 +3504,9 @@ function normalizeHighlightLanguage(language) {
 function buildManualProfileSummary(profile) {
   const safeProfile = normalizeManualProfile(profile);
   const parts = [];
-  const identity = [safeProfile.name, safeProfile.role].filter(Boolean).join(", ");
+  const identity = [safeProfile.name, safeProfile.role]
+    .filter(Boolean)
+    .join(", ");
 
   if (identity) {
     parts.push(identity);
@@ -2239,9 +3543,12 @@ function buildManualProfileLines(profile) {
   if (safeProfile.role) lines.push(`- Role: ${safeProfile.role}`);
   if (safeProfile.headline) lines.push(`- Headline: ${safeProfile.headline}`);
   if (safeProfile.focus) lines.push(`- Focus: ${safeProfile.focus}`);
-  if (safeProfile.preferredStack) lines.push(`- Preferred stack: ${safeProfile.preferredStack}`);
-  if (safeProfile.designTaste) lines.push(`- Design taste: ${safeProfile.designTaste}`);
-  if (safeProfile.buildNotes) lines.push(`- Build notes: ${safeProfile.buildNotes}`);
+  if (safeProfile.preferredStack)
+    lines.push(`- Preferred stack: ${safeProfile.preferredStack}`);
+  if (safeProfile.designTaste)
+    lines.push(`- Design taste: ${safeProfile.designTaste}`);
+  if (safeProfile.buildNotes)
+    lines.push(`- Build notes: ${safeProfile.buildNotes}`);
 
   return lines;
 }
@@ -2294,7 +3601,10 @@ async function loadEnvFile() {
       }
 
       const key = trimmed.slice(0, separatorIndex).trim();
-      const value = trimmed.slice(separatorIndex + 1).trim().replace(/^['"]|['"]$/g, "");
+      const value = trimmed
+        .slice(separatorIndex + 1)
+        .trim()
+        .replace(/^['"]|['"]$/g, "");
 
       if (key && !process.env[key]) {
         process.env[key] = value;
@@ -2307,6 +3617,20 @@ async function loadEnvFile() {
 
 function normalizeText(value, maxLength) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function truncateText(value, maxLength) {
+  const text = typeof value === "string" ? value.trim() : "";
+
+  if (!text || text.length <= maxLength) {
+    return text;
+  }
+
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function trimServerText(value, maxLength) {
+  return truncateText(value, maxLength);
 }
 
 function normalizeArtifactType(value) {
@@ -2380,7 +3704,10 @@ function countTop(values, limit) {
   }
 
   return [...counts.entries()]
-    .sort((left, right) => right[1] - left[1] || String(left[0]).localeCompare(String(right[0])))
+    .sort(
+      (left, right) =>
+        right[1] - left[1] || String(left[0]).localeCompare(String(right[0])),
+    )
     .slice(0, limit)
     .map(([value, count]) => ({ value, count }));
 }
@@ -2446,22 +3773,101 @@ function parseGitHubRepositoryUrl(value) {
   }
 }
 
+function shouldUseMediumFallback(url, error) {
+  const mediumArticle = parseMediumArticleUrl(url);
+  const status = Number(error?.status);
+
+  return Boolean(
+    mediumArticle?.feedUrl &&
+    (status === 401 || status === 403 || status === 429),
+  );
+}
+
+function parseMediumArticleUrl(value) {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+
+    if (hostname !== "medium.com" && !hostname.endsWith(".medium.com")) {
+      return null;
+    }
+
+    const segments = url.pathname.split("/").filter(Boolean);
+    const articleId = extractMediumArticleId(url.pathname);
+
+    if (!segments.length || !articleId) {
+      return null;
+    }
+
+    if (segments[0].startsWith("@")) {
+      return {
+        articleId,
+        feedUrl: new URL(`/feed/${segments[0]}`, url.origin).toString(),
+        normalizedUrl: normalizeComparableUrl(url),
+      };
+    }
+
+    if (segments[0] !== "p") {
+      return {
+        articleId,
+        feedUrl: new URL(`/feed/${segments[0]}`, url.origin).toString(),
+        normalizedUrl: normalizeComparableUrl(url),
+      };
+    }
+
+    return {
+      articleId,
+      feedUrl: "",
+      normalizedUrl: normalizeComparableUrl(url),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function extractMediumArticleId(pathname) {
+  const normalizedPath = String(pathname || "");
+  const directMatch = normalizedPath.match(/\/p\/([a-f0-9]{8,})/i);
+
+  if (directMatch) {
+    return directMatch[1].toLowerCase();
+  }
+
+  const lastSegment = normalizedPath.split("/").filter(Boolean).at(-1) || "";
+  const slugMatch = lastSegment.match(/-([a-f0-9]{8,})$/i);
+
+  return slugMatch ? slugMatch[1].toLowerCase() : "";
+}
+
 async function fetchRemote(url) {
   const response = await fetchWithTlsRetry(url, {
     headers: {
-      "User-Agent": "Code-Digest-Studio",
-      Accept: "text/html, text/plain, application/json, application/pdf;q=0.9, */*;q=0.8",
+      "User-Agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      Accept:
+        "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain,application/json,application/pdf;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
     },
     redirect: "follow",
   });
 
   if (!response.ok) {
-    throw new Error(`Unable to fetch "${url}". Received ${response.status}.`);
+    const error = new Error(
+      `Unable to fetch "${url}". Received ${response.status}.${response.status === 403 ? " The site blocked automated access." : ""}`,
+    );
+    error.status = response.status;
+    throw error;
   }
 
-  const declaredLength = Number.parseInt(response.headers.get("content-length") || "0", 10);
+  const declaredLength = Number.parseInt(
+    response.headers.get("content-length") || "0",
+    10,
+  );
 
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_REMOTE_RESPONSE_BYTES) {
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_REMOTE_RESPONSE_BYTES
+  ) {
     throw new Error("Remote content is too large to import into Digest.");
   }
 
@@ -2531,9 +3937,18 @@ function extractHtmlTitle(html) {
 
 function extractMetaDescription(html) {
   return (
-    matchHtmlAttribute(html, /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i) ||
-    matchHtmlAttribute(html, /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i) ||
-    matchHtmlAttribute(html, /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)
+    matchHtmlAttribute(
+      html,
+      /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i,
+    ) ||
+    matchHtmlAttribute(
+      html,
+      /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i,
+    ) ||
+    matchHtmlAttribute(
+      html,
+      /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i,
+    )
   );
 }
 
@@ -2558,7 +3973,10 @@ function extractReadableText(html) {
 
 function stripHtmlTags(value) {
   return String(value || "")
-    .replace(/<\/(p|div|section|article|h1|h2|h3|h4|h5|h6|li|ul|ol|br|tr|td|th)>/gi, "\n")
+    .replace(
+      /<\/(p|div|section|article|h1|h2|h3|h4|h5|h6|li|ul|ol|br|tr|td|th)>/gi,
+      "\n",
+    )
     .replace(/<[^>]+>/g, " ");
 }
 
@@ -2582,6 +4000,62 @@ function decodeHtmlEntities(value) {
     .replace(/&#39;/gi, "'")
     .replace(/&#x27;/gi, "'")
     .replace(/&#x2F;/gi, "/");
+}
+
+function extractXmlTagValue(xml, tagName) {
+  return extractXmlTagValues(xml, tagName)[0] || "";
+}
+
+function extractXmlTagValues(xml, tagName) {
+  const pattern = new RegExp(
+    `<${escapeRegex(tagName)}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${escapeRegex(tagName)}>`,
+    "gi",
+  );
+
+  return [...String(xml || "").matchAll(pattern)].map((match) =>
+    unwrapXmlCdata(match[1]).trim(),
+  );
+}
+
+function unwrapXmlCdata(value) {
+  const match = String(value || "").match(/^<!\[CDATA\[([\s\S]*?)\]\]>$/);
+  return match ? match[1] : String(value || "");
+}
+
+function findMediumFeedItem(feedXml, mediumArticle) {
+  const items = extractXmlTagValues(feedXml, "item");
+
+  return (
+    items.find((item) => {
+      const link = normalizeComparableUrl(extractXmlTagValue(item, "link"));
+      const guid = normalizeComparableUrl(extractXmlTagValue(item, "guid"));
+
+      return [link, guid].some(
+        (value) =>
+          value &&
+          (value === mediumArticle.normalizedUrl ||
+            value.includes(mediumArticle.articleId)),
+      );
+    }) || ""
+  );
+}
+
+function normalizeComparableUrl(value) {
+  try {
+    const url = typeof value === "string" ? new URL(value) : value;
+    url.search = "";
+    url.hash = "";
+    url.pathname = url.pathname.replace(/\/+$/g, "") || "/";
+    return `${url.origin}${url.pathname}`.toLowerCase();
+  } catch {
+    return String(value || "")
+      .trim()
+      .toLowerCase();
+  }
+}
+
+function escapeRegex(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function deriveFileNameFromUrl(value) {
@@ -2620,11 +4094,13 @@ function safeTimestamp(timestamp) {
 }
 
 function slugify(value) {
-  return (value || "digest")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64) || "digest";
+  return (
+    (value || "digest")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 64) || "digest"
+  );
 }
 
 function titleCase(value) {
